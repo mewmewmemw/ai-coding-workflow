@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит детальный reference по всем примитивам Claude Code.
 > Известные баги и workarounds — см. `research-cc-known-issues.md`.
 
-> Верифицировано по версии **v2.1.50-51** (февраль 2026). Десять раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации).
+> Верифицировано по версии **v2.1.50-51** (февраль 2026). Непрерывная верификация через exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации.
 
 ---
 
@@ -16,7 +16,7 @@
 | `name` | да | строка (lowercase letters and hyphens — official docs). ⚠️ Plugin-dev SKILL.md добавляет: numbers, 3-50 символов, алфавитно-цифровое начало/конец — но в official reference table этих ограничений нет | Идентификатор субагента |
 | `description` | да | строка | По этому полю Claude решает, когда делегировать задачу |
 | `model` | нет | `haiku`, `sonnet`, `opus`, `inherit` | `inherit` — наследует от родителя (default) |
-| `tools` | нет | массив или строка. Поддерживает синтаксис `Task(agent_type)` для ограничения спауна субагентов (только `claude --agent`) | Ограничивает доступные инструменты (whitelist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
+| `tools` | нет | массив или строка. Поддерживает синтаксис `Task(agent_type)` для ограничения спауна субагентов (только `claude --agent`) | Ограничивает доступные инструменты (whitelist). ⚠️ Не блокирует MCP-инструменты (Issue #25589). ⚠️ Поле называется `tools:` — использование `allowed-tools:` (синтаксис Skills) в frontmatter субагента **молча игнорируется**, субагент наследует все инструменты родителя (Issue #27099, задокументированы инциденты с credential-hunting) |
 | `disallowedTools` | нет | массив или строка | Запрещает конкретные инструменты (blacklist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
 | `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree. Worktree автоматически удаляется, если субагент не внёс изменений |
 | `hooks` | нет | объект (как в settings.json) | Hooks, привязанные к жизненному циклу субагента |
@@ -368,19 +368,20 @@ claude plugin update <plugin-name> [--scope user|project|local|managed]  # manag
 
 ---
 
-## Settings: 5-уровневая иерархия
+## Settings: 4-уровневая иерархия
 
-Настройки Claude Code работают в 5 скоупах (от высшего приоритета к низшему):
+Настройки Claude Code работают в 4 скоупах (от высшего приоритета к низшему):
 
 1. **Managed policy** (`managed-settings.json`) — корпоративные политики (самый высокий приоритет)
    - macOS: `/Library/Application Support/ClaudeCode/managed-settings.json`
    - Linux/WSL: `/etc/claude-code/managed-settings.json`
    - Windows: `C:\Program Files\ClaudeCode\managed-settings.json`
    - Также `managed-mcp.json` для MCP-конфигурации
-2. **CLI arguments** — аргументы командной строки (временные, для текущей сессии)
-3. **`.claude/settings.local.json`** — локальные настройки проекта (не коммитятся в git)
-4. **`.claude/settings.json`** — настройки проекта (коммитятся в git)
-5. **`~/.claude/settings.json`** — пользовательские настройки (lowest)
+2. **`.claude/settings.local.json`** — локальные настройки проекта (не коммитятся в git)
+3. **`.claude/settings.json`** — настройки проекта (коммитятся в git)
+4. **`~/.claude/settings.json`** — пользовательские настройки (lowest)
+
+> **CLI arguments** (`--model`, `--allowedTools`, etc.) — временные переопределения для текущей сессии. Это не отдельный scope, а слой приоритета между Managed policy и Local settings.
 
 > **Правило:** hooks из `.claude/settings.json` коммитятся в репозиторий и работают для всей команды. Для локальных экспериментов — `.claude/settings.local.json`.
 
