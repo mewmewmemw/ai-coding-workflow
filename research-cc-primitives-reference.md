@@ -21,7 +21,7 @@
 | `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree |
 | `hooks` | нет | объект (как в settings.json) | Hooks, привязанные к жизненному циклу субагента |
 | `maxTurns` | нет | число | Максимальное количество turn-ов (лимит работы субагента) |
-| `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan`. ⚠️ `dontAsk` полностью работает в CLI/frontmatter, но TypeScript SDK `PermissionMode` type definition содержит только `default`/`acceptEdits`/`bypassPermissions`/`plan` — при программном использовании SDK `dontAsk` может не поддерживаться | Режим разрешений для субагента |
+| `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` | Режим разрешений для субагента |
 | `mcpServers` | нет | объект (имя сервера → ссылка на уже настроенный сервер или inline definition с полной конфигурацией) | MCP-серверы, доступные субагенту |
 | `skills` | нет | массив | Skills, доступные субагенту. Полный контент SKILL.md инжектируется при старте (не только description). ⚠️ Субагенты **не наследуют** skills от родительской сессии — нужно указывать явно |
 | `memory` | нет | enum: `user`, `project`, `local`. Пути: `user` → `~/.claude/agent-memory/<name>/`, `project` → `.claude/agent-memory/<name>/`, `local` → `.claude/agent-memory-local/<name>/` | Включает персистентную директорию памяти. Автоматически включает Read, Write, Edit tools. Первые 200 строк `MEMORY.md` включаются в system prompt |
@@ -362,52 +362,6 @@ claude plugin update <plugin-name>
 5. **`~/.claude/settings.json`** — пользовательские настройки (lowest)
 
 > **Правило:** hooks из `.claude/settings.json` коммитятся в репозиторий и работают для всей команды. Для локальных экспериментов — `.claude/settings.local.json`.
-
----
-
-## Agent SDK (программная оркестрация)
-
-```typescript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-for await (const message of query({
-  prompt: "Review auth module for security issues",
-  options: {
-    allowedTools: ["Read", "Grep", "Glob", "Task"],
-    agents: {
-      "code-reviewer": {
-        description: "Expert code reviewer",
-        prompt: "You are a senior code reviewer...",
-        tools: ["Read", "Grep", "Glob", "Bash"],
-        model: "sonnet"
-      }
-    }
-  }
-})) {
-  // process messages
-}
-```
-
-**Ключевые возможности SDK:**
-- Программное определение субагентов через `agents` параметр
-- Кастомные MCP-инструменты через `createSdkMcpServer()` + `tool()` helper
-- Резюмирование сессий через `resume: sessionId` (+ `forkSession`, `resumeSessionAt`)
-- Детекция контекста субагента через `parent_tool_use_id` поле в SDK message types (`SDKAssistantMessage`, `SDKUserMessage`)
-- `canUseTool` — программный контроль разрешений
-- `outputFormat: { type: 'json_schema', schema: JSONSchema }` — structured JSON output
-- `sandbox` — настройка sandbox для выполнения команд
-- `plugins: [{ type: "local", path: "./my-plugin" }]` — программная загрузка плагинов
-- `betas: ['context-1m-2025-08-07']` — расширенный контекст до 1M токенов
-
-**Python SDK** дополнительно предоставляет `ClaudeSDKClient` для multi-turn conversations с hooks и custom tools.
-
-**V2 SDK preview (unstable):** `unstable_v2_prompt()`, `unstable_v2_createSession()`/`unstable_v2_resumeSession()`, `session.send()`/`session.stream()`.
-
-> ⚠️ **SDK HookEvent type gap:** TypeScript SDK `HookEvent` поддерживает только **12 из 17** событий. Отсутствуют: `TeammateIdle`, `TaskCompleted`, `ConfigChange`, `WorktreeCreate`, `WorktreeRemove`. Это значит, что Agent Teams quality gates через `TeammateIdle` **невозможны** при программной оркестрации через SDK — только через `settings.json` command hooks.
-
-**Official docs:**
-- [Agent SDK — TypeScript](https://platform.claude.com/docs/en/agent-sdk/typescript)
-- [Agent SDK — Subagents](https://platform.claude.com/docs/en/agent-sdk/subagents)
 
 ---
 

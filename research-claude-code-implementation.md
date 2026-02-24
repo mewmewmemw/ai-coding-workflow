@@ -18,9 +18,6 @@
 - [Skills](https://code.claude.com/docs/en/skills)
 - [Plugins reference](https://code.claude.com/docs/en/plugins-reference)
 - [Settings reference](https://code.claude.com/docs/en/settings)
-- [Agent SDK — TypeScript](https://platform.claude.com/docs/en/agent-sdk/typescript)
-- [Agent SDK — Subagents](https://platform.claude.com/docs/en/agent-sdk/subagents)
-
 ### Community-ресурсы
 - [Everything Claude Code](https://github.com/affaan-m/everything-claude-code) — battle-tested конфигурации (1845 сниппетов)
 - [Trail of Bits Claude Code Config](https://github.com/trailofbits/claude-code-config) — security-focused defaults
@@ -986,6 +983,5 @@ jobs:
 - **Plugin** — упаковать всё в plugin для переиспользования между проектами
 - **Agent Teams** — когда стабилизируется. Lead ограничивается координацией через промт "Wait for your teammates to complete their tasks before proceeding" (Delegate Mode — community-термин, не official feature)
 - **`claude --remote` / `--teleport`** — для внешней orchestration
-- **Agent SDK** — программная оркестрация для CI/CD интеграции
 - **`PreCompact` hook** — backup transcript перед компакцией контекста
-- **CI-интеграция через Agent SDK** — программный запуск агентов в CI pipeline
+- **CI-интеграция через `claude -p`** — программный запуск агентов в CI pipeline
