@@ -5,8 +5,14 @@
 - [Официальная документация subagents](https://code.claude.com/docs/en/sub-agents)
 - [Agent Teams](https://code.claude.com/docs/en/agent-teams)
 - [Hooks reference](https://code.claude.com/docs/en/hooks)
+- [Hooks guide](https://code.claude.com/docs/en/hooks-guide)
+- [Skills](https://code.claude.com/docs/en/skills)
 - [Git Worktrees в Claude Code](https://notes.muthu.co/2026/02/the-complete-guide-to-git-worktrees-with-claude-code/)
 - [Swarm Orchestration Skill](https://gist.github.com/kieranklaassen/4f2aba89594a4aea4ad64d753984b2ea)
+- [Claude Code Hooks Complete Guide Feb 2026](https://smartscope.blog/en/generative-ai/claude/claude-code-hooks-guide/)
+- [Agent Teams Guide](https://claudefa.st/blog/guide/agents/agent-teams)
+
+> Документ верифицирован по версии **v2.1.50** (21 февраля 2026). Все примеры проверены против официальной документации.
 
 ---
 
@@ -42,12 +48,37 @@
 
 ### Формат файла субагента (.claude/agents/researcher-architecture.md)
 
+Все поля frontmatter:
+
+| Поле | Обязательное | Значения | Описание |
+|---|---|---|---|
+| `name` | да | строка | Идентификатор субагента |
+| `description` | да | строка + `<example>` блоки | По этому полю Claude решает, когда делегировать задачу |
+| `model` | нет | `haiku`, `sonnet`, `opus`, `inherit` | `inherit` — наследует от родителя |
+| `tools` | нет | массив или строка через запятую | Ограничивает доступные инструменты |
+| `color` | нет | `blue`, `green`, `yellow`, `red`, `purple` | Цвет в UI для визуального различия |
+| `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree (добавлено в v2.1.50) |
+
+> **Важно про `description`:** Claude использует это поле для автоматического делегирования. Чем конкретнее описание, тем точнее срабатывает делегирование. Официально рекомендуется добавлять `<example>` блоки.
+
 ```markdown
 ---
 name: researcher-architecture
-description: Research specialist for understanding system architecture. Use when exploring high-level structure, layers, entry points, and architectural patterns of the codebase.
+description: |
+  Research specialist for understanding system architecture. Use when exploring
+  high-level structure, layers, entry points, and architectural patterns of the codebase.
+
+  <example>
+  Context: Need to understand how the payment module is structured
+  user: "Research the architecture of our payment processing system"
+  assistant: "I'll delegate this to the researcher-architecture agent to map the structure"
+  <commentary>
+  Architecture research tasks with no code writing should go to this agent
+  </commentary>
+  </example>
 tools: Read, Glob, Grep, Bash
 model: haiku
+color: yellow
 isolation: worktree
 ---
 
@@ -101,16 +132,18 @@ When given a task for Research phase:
 ### Git Worktrees для изоляции
 
 ```yaml
-# В frontmatter субагента
+# В frontmatter субагента (добавлено в v2.1.50, февраль 2026)
 isolation: worktree
 ```
 
-Это даёт каждому субагенту изолированную копию репозитория — важно при параллельном чтении больших кодовых баз.
+Это даёт каждому субагенту изолированную копию репозитория — важно при параллельном чтении больших кодовых баз. Каждый агент работает на своей ветке, без конфликтов при одновременных изменениях.
 
 Либо через CLI:
 ```bash
 claude --worktree
 ```
+
+При использовании `isolation: worktree` автоматически срабатывают новые hook-события `WorktreeCreate` и `WorktreeRemove` (также добавлены в v2.1.50) — через них можно кастомизировать настройку worktree (например, для non-git VCS).
 
 ---
 
@@ -384,6 +417,40 @@ Hooks обеспечивают детерминированный контрол
 > - **Subagents** → `SubagentStop` hook, возвращает JSON `{"decision": "block", "reason": "..."}` в stdout
 > - **Agent Teams** → `TeammateIdle` hook, exit code `2` в stderr блокирует teammate
 
+#### Полный список hook-событий (v2.1.50, 14+ событий)
+
+| Событие | Когда срабатывает | Может блокировать |
+|---|---|---|
+| `SessionStart` | При старте/возобновлении сессии | Да |
+| `SessionEnd` | При завершении сессии | Нет |
+| `UserPromptSubmit` | При отправке промта, до обработки Claude | Да |
+| `PreToolUse` | Перед выполнением tool-вызова | Да |
+| `PermissionRequest` | При появлении диалога разрешения | Да |
+| `PostToolUse` | После успешного tool-вызова | Нет |
+| `PostToolUseFailure` | После неудачного tool-вызова | Нет |
+| `Notification` | Когда Claude Code отправляет уведомление | Нет |
+| `SubagentStart` | При запуске субагента | Нет |
+| `SubagentStop` | При завершении субагента | Да (JSON output) |
+| `Stop` | Когда Claude завершает ответ | Да (JSON output) |
+| `TeammateIdle` | Когда teammate в Agent Teams уходит в idle | Да (exit 2) |
+| `TaskCompleted` | Когда задача помечается как завершённая | Да |
+| `ConfigChange` | При изменении конфига во время сессии | Нет |
+| `WorktreeCreate` | При создании worktree через `--worktree` / `isolation: worktree` | Да (заменяет git) |
+| `WorktreeRemove` | При удалении worktree | Нет |
+
+#### Типы hook-обработчиков (три варианта)
+
+```json
+// 1. command — shell-команда (основной вариант)
+{ "type": "command", "command": ".claude/hooks/my-script.sh" }
+
+// 2. prompt — LLM-оценка (для нетривиальных решений)
+{ "type": "prompt", "prompt": "Проверь что тесты написаны для всех публичных методов. Если нет — block." }
+
+// 3. agent — запускает субагента (для сложных проверок)
+{ "type": "agent", "agent": "quality-gate-agent" }
+```
+
 #### settings.json — hooks для режима Subagents (основной вариант)
 
 ```json
@@ -416,35 +483,38 @@ Hooks обеспечивают детерминированный контрол
 
 #### .claude/hooks/quality-gate-subagent.sh
 
+> ⚠️ **Критически важно:** решение `"approve"`, не `"allow"`. Официальный формат: `{"decision": "approve|block", "reason": "...", "systemMessage": "..."}`.
+> Поле `systemMessage` — опциональный дополнительный контекст для Claude при блокировке.
+
 ```bash
 #!/bin/bash
-# Запускается когда субагент завершает работу.
+# Запускается когда субагент завершает работу (SubagentStop hook).
 # Возвращает JSON {"decision": "block", "reason": "..."} → субагент не останавливается.
-# Возвращает JSON {"decision": "allow"} или пустой stdout → субагент завершается.
+# Возвращает JSON {"decision": "approve"} или пустой stdout → субагент завершается.
 
 ERRORS=""
 
 # 1. Build check
 if ! npm run build > /tmp/build-output.txt 2>&1; then
-  ERRORS="BUILD FAILED:\n$(cat /tmp/build-output.txt | tail -20)"
+  ERRORS="BUILD FAILED:\n$(tail -20 /tmp/build-output.txt)"
 fi
 
 # 2. Tests check
 if [ -z "$ERRORS" ] && ! npm test > /tmp/test-output.txt 2>&1; then
-  ERRORS="TESTS FAILED:\n$(cat /tmp/test-output.txt | tail -30)"
+  ERRORS="TESTS FAILED:\n$(tail -30 /tmp/test-output.txt)"
 fi
 
 # 3. Lint check
 if [ -z "$ERRORS" ] && ! npm run lint > /tmp/lint-output.txt 2>&1; then
-  ERRORS="LINT FAILED:\n$(cat /tmp/lint-output.txt | tail -20)"
+  ERRORS="LINT FAILED:\n$(tail -20 /tmp/lint-output.txt)"
 fi
 
 if [ -n "$ERRORS" ]; then
-  echo "{\"decision\": \"block\", \"reason\": \"Quality gate failed. Fix before stopping: $ERRORS\"}"
+  echo "{\"decision\": \"block\", \"reason\": \"Quality gate failed. Fix before stopping.\", \"systemMessage\": \"$ERRORS\"}"
   exit 0
 fi
 
-echo "{\"decision\": \"allow\"}"
+echo "{\"decision\": \"approve\"}"
 exit 0
 ```
 
@@ -756,11 +826,15 @@ All AI agents must follow the 4-phase process:
 | **Implementation: Arch Reviewer** | Custom Subagent | `.claude/agents/arch-reviewer.md` |
 | **Implementation: Security Reviewer** | Custom Subagent | `.claude/agents/security-reviewer.md` |
 | **Implementation: Plan Compliance** | Custom Subagent | `.claude/agents/plan-compliance.md`, `model: haiku` |
-| **Quality Gates (Subagents)** | `SubagentStop` hook | JSON `{"decision": "block"}` блокирует субагент |
+| **Quality Gates (Subagents)** | `SubagentStop` hook | JSON `{"decision": "block", "systemMessage": "..."}` блокирует субагент |
 | **Quality Gates (Agent Teams)** | `TeammateIdle` hook | exit 2 блокирует teammate |
 | **Quality Gates: автоформатирование** | `PostToolUse` hook | matcher `Edit\|Write` → lint-on-edit.sh |
-| **Параллельные сессии без конфликтов** | Git Worktrees | `claude --worktree` или `isolation: worktree` в subagent |
+| **Параллельные сессии без конфликтов** | Git Worktrees | `claude --worktree` или `isolation: worktree` в subagent (v2.1.50+) |
 | **Сложная координация между агентами** | Agent Teams (experimental) | `settings.json` → `{"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}` |
+| **Лёгкая координация без Agent Teams** | tmux + state-файлы | Stop hook → tmux send-keys к координатору |
+| **Async уведомления** | Async hooks | `"async": true` в hook — не блокирует агента |
+| **Запуск субагента** | `SubagentStart` hook | Для логирования, трекинга начала работы |
+| **Кастомный git worktree setup** | `WorktreeCreate` / `WorktreeRemove` hooks | Для non-git VCS или кастомной настройки веток |
 
 ---
 
@@ -775,11 +849,17 @@ All AI agents must follow the 4-phase process:
 
 **Для Subagents** — `SubagentStop` hook:
 ```json
-// stdout
-{"decision": "block", "reason": "BUILD FAILED: fix errors before stopping"}
-// или
-{"decision": "allow"}
+// stdout — блокировать:
+{
+  "decision": "block",
+  "reason": "BUILD FAILED: fix errors before stopping",
+  "systemMessage": "<детали ошибок для Claude>"
+}
+// или разрешить:
+{"decision": "approve"}
 ```
+
+> ⚠️ Правильное значение — `"approve"`, не `"allow"`. `systemMessage` — опциональный контекст, который Claude получит при блокировке.
 
 **Для Agent Teams** — `TeammateIdle` hook:
 ```bash
@@ -788,6 +868,11 @@ All AI agents must follow the 4-phase process:
 ```
 
 `TeammateIdle` работает **только** в контексте Agent Teams. Применять его к обычным субагентам бессмысленно — он просто не будет срабатывать.
+
+**Коды выхода для command-hooks:**
+- `exit 0` — успех, stdout идёт в transcript
+- `exit 2` — блокирующая ошибка, stderr передаётся обратно Claude
+- любой другой — небокирующая ошибка, выполнение продолжается
 
 Это детерминированный механизм: агент не может завершить фазу, пока не пройдут все quality gates. Не зависит от LLM.
 
@@ -804,6 +889,134 @@ All AI agents must follow the 4-phase process:
 - Implementation Backend → `model: sonnet` или `opus` для сложного кода
 - Plan Compliance → `model: haiku` (механическая проверка чеклиста)
 - Security Reviewer → `model: opus` (критично не пропустить уязвимости)
+
+---
+
+---
+
+## Дополнения и новые фичи (февраль 2026)
+
+### Async Hooks (добавлены в январе 2026)
+
+По умолчанию hooks синхронные — Claude ждёт их завершения. Async hooks запускаются без блокировки сессии:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/async-notify.sh",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Используй async для: уведомлений, логирования, аналитики — всего, что не должно блокировать агента.
+
+---
+
+### /hooks — интерактивное меню
+
+В Claude Code появилось интерактивное меню для настройки hooks без ручного редактирования JSON:
+
+```
+/hooks
+```
+
+Показывает все доступные события, matchers и текущие hook-команды. Удобно для начальной настройки.
+
+---
+
+### Agent Teams: паттерн Swarm через tmux
+
+Кроме официального Agent Teams API, существует проверенный community-паттерн координации через tmux + state-файлы. Используется для более гибкой оркестрации:
+
+**Структура state-файла агента** (`.claude/agent-state.local.md`):
+```markdown
+---
+agent_name: backend-developer
+task_number: 1
+coordinator_session: lead-session
+enabled: true
+dependencies: []
+---
+
+# Task Assignment
+
+Implement phase 1 from docs/plan/{task}/phase-1.md.
+```
+
+**Hook для нотификации координатора** (`.claude/hooks/notify-lead.sh`):
+```bash
+#!/bin/bash
+# Stop hook — отправляет сигнал Lead-агенту через tmux когда субагент завершился
+
+STATE_FILE=".claude/agent-state.local.md"
+if [[ ! -f "$STATE_FILE" ]]; then
+  exit 0
+fi
+
+COORDINATOR=$(grep '^coordinator_session:' "$STATE_FILE" | sed 's/coordinator_session: *//')
+AGENT=$(grep '^agent_name:' "$STATE_FILE" | sed 's/agent_name: *//')
+ENABLED=$(grep '^enabled:' "$STATE_FILE" | sed 's/enabled: *//')
+
+if [[ "$ENABLED" != "true" ]]; then
+  exit 0
+fi
+
+if tmux has-session -t "$COORDINATOR" 2>/dev/null; then
+  tmux send-keys -t "$COORDINATOR" "Agent $AGENT completed." Enter
+fi
+
+exit 0
+```
+
+Это позволяет строить свободную координацию без экспериментального Agent Teams API. Подходит для production.
+
+---
+
+### Hooks в frontmatter субагента
+
+Начиная с текущих версий, hooks можно определять прямо в frontmatter субагента (а не только в settings.json). Это позволяет упаковывать поведение субагента вместе с его hooks:
+
+```markdown
+---
+name: backend-developer
+description: Backend implementation specialist.
+model: sonnet
+tools: Read, Edit, Write, Bash, Glob, Grep
+hooks:
+  SubagentStop:
+    - type: command
+      command: .claude/hooks/quality-gate-subagent.sh
+---
+```
+
+---
+
+### Plugins (экосистема расширений)
+
+Помимо `.claude/agents/` и `.claude/skills/`, в 2026 появилась полноценная система плагинов:
+
+```
+.claude/plugins/
+  my-plugin/
+    plugin.json       # манифест
+    agents/           # агенты плагина
+    skills/           # skills плагина
+    hooks/            # hooks плагина
+    mcp/              # MCP серверы
+```
+
+Плагины можно устанавливать из маркетплейса (`/plugins`) или из локальных директорий. Это способ переиспользовать `.claude/` конфигурацию между проектами.
 
 ---
 
