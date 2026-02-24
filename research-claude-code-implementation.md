@@ -10,8 +10,8 @@
 - [Skills](https://code.claude.com/docs/en/skills)
 - [Plugins reference](https://code.claude.com/docs/en/plugins-reference)
 - [Settings reference](https://code.claude.com/docs/en/settings)
-- [Agent SDK — TypeScript](https://code.claude.com/docs/en/sdk/sdk-typescript)
-- [Agent SDK — Subagents](https://docs.anthropic.com/en/docs/claude-code/sdk/subagents)
+- [Agent SDK — TypeScript](https://platform.claude.com/docs/en/agent-sdk/typescript)
+- [Agent SDK — Subagents](https://platform.claude.com/docs/en/agent-sdk/subagents)
 
 ### Community-ресурсы
 - [Everything Claude Code](https://github.com/affaan-m/everything-claude-code) — battle-tested конфигурации (1845 сниппетов)
@@ -26,7 +26,7 @@
 - [CLAUDE.md Complete Guide](https://www.claudedirectory.org/blog/claude-md-guide)
 - [Anthropic Guide: Building Skills](https://resources.anthropic.com/hubfs/The-Complete-Guide-to-Building-Skill-for-Claude.pdf)
 
-> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026, второе ревью: 24 февраля 2026 (exa + context7 + GitHub issues, 5 параллельных агентов верификации). Исправления применены по результатам обоих ревью.
+> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026, третье ревью: 24 февраля 2026 (exa + context7 + GitHub issues, 5 параллельных агентов верификации). Исправления применены по результатам трёх ревью.
 
 ---
 
@@ -67,27 +67,35 @@
 
 | Поле | Обязательное | Значения | Описание |
 |---|---|---|---|
-| `name` | да | строка (lowercase + numbers + hyphens, 3-50 символов, начало и конец — алфавитно-цифровой) | Идентификатор субагента |
+| `name` | да | строка (lowercase + numbers + hyphens, 3-50 символов, начало и конец — алфавитно-цифровой). ⚠️ Constraints 3-50 chars и numbers — из plugin-dev SKILL.md; official reference table говорит только "lowercase letters and hyphens" | Идентификатор субагента |
 | `description` | да | строка + `<example>` блоки | По этому полю Claude решает, когда делегировать задачу |
 | `model` | нет | `haiku`, `sonnet`, `opus`, `inherit` | `inherit` — наследует от родителя (default) |
-| `tools` | нет | массив или строка | Ограничивает доступные инструменты (whitelist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
+| `tools` | нет | массив или строка. Поддерживает синтаксис `Task(agent_type)` для ограничения спауна субагентов (только `claude --agent`) | Ограничивает доступные инструменты (whitelist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
 | `disallowedTools` | нет | массив или строка | Запрещает конкретные инструменты (blacklist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
 | `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree |
 | `hooks` | нет | объект (как в settings.json) | Hooks, привязанные к жизненному циклу субагента |
 | `maxTurns` | нет | число | Максимальное количество turn-ов (лимит работы субагента) |
-| `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` | Режим разрешений для субагента |
+| `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan`. ⚠️ `dontAsk` может быть недоступен в Agent SDK (SDK TypeScript reference показывает только default/acceptEdits/bypassPermissions/plan) | Режим разрешений для субагента |
 | `mcpServers` | нет | объект | MCP-серверы, доступные субагенту |
 | `skills` | нет | массив | Skills, доступные субагенту. Полный контент SKILL.md инжектируется при старте (не только description) |
 | `memory` | нет | enum: `user`, `project`, `local` | Включает персистентную директорию памяти для субагента |
-| `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу |
+| `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу. ⚠️ MCP tools недоступны в background subagents; неодобренные разрешения автоматически отклоняются; Stop hooks **не срабатывают** (Issue #25147) |
 
 > **Про `color`:** Поле `color` (`blue`, `cyan`, `green`, `yellow`, `magenta`, `red`) работает на практике и используется в официальных примерах и SKILL.md плагина plugin-dev, но **отсутствует** в официальной reference table "Supported frontmatter fields". Используйте — но знайте, что это недокументированное поле.
 
-> **Важно про `description`:** Claude использует это поле для автоматического делегирования. Чем конкретнее описание, тем точнее срабатывает делегирование. Официально рекомендуется добавлять `<example>` блоки.
+> **Важно про `description`:** Claude использует это поле для автоматического делегирования. Чем конкретнее описание, тем точнее срабатывает делегирование. Рекомендуется добавлять `<example>` блоки (best practice из plugin-dev плагина; official docs не упоминают `<example>` явно).
 >
-> **Важно про `tools`:** Субагенты **не могут** спаунить собственных субагентов — не включайте `Task` в массив `tools` субагента.
+> **Важно про `tools`:** Субагенты **не могут** спаунить собственных субагентов — не включайте `Task` в массив `tools` субагента. Для main-thread агента (`claude --agent`) можно ограничить спаун через `tools: Task(worker, researcher), Read, Bash`.
+>
+> **Отключение субагентов через settings:** `"permissions": { "deny": ["Task(Explore)", "Task(my-custom-agent)"] }` или `--disallowedTools "Task(Explore)"`.
 >
 > **Приоритет определений:** CLI (`--agents`) > project (`.claude/agents/`) > user (`~/.claude/agents/`) > plugin
+>
+> **Resume и транскрипты:** Субагенты можно resume с полной историей. Транскрипты хранятся в `~/.claude/projects/{project}/{sessionId}/subagents/agent-{agentId}.jsonl`. ⚠️ Resume ломается при 3+ tool uses в первом вызове (Issue #20942).
+>
+> **Auto-compaction:** Субагенты поддерживают auto-compaction при ~95% ёмкости контекста, настраивается через `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`.
+>
+> **CLI `--agents` JSON:** Поддерживает только 8 полей (description, prompt, tools, disallowedTools, model, skills, mcpServers, maxTurns). Поля permissionMode, hooks, memory, background, isolation, color — **только в file-based формате**. Вместо markdown body используется поле `prompt`.
 
 ```markdown
 ---
@@ -459,11 +467,11 @@ Hooks обеспечивают детерминированный контрол
 | `PostToolUseFailure` | После неудачного tool-вызова | Нет | имя инструмента |
 | `Notification` | Когда Claude Code отправляет уведомление | Нет | тип: `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog` |
 | `SubagentStart` | При запуске субагента | Нет | тип агента: `Bash`, `Explore`, `Plan`, custom names |
-| `SubagentStop` | При завершении субагента | Да (exit 2 или JSON) | имя агента |
+| `SubagentStop` | При завершении субагента | Да (exit 2 или JSON) | тип агента (`agent_type`): `Bash`, `Explore`, `Plan`, custom names |
 | `Stop` | Когда Claude завершает ответ | Да (exit 2 или JSON) | нет matcher |
 | `TeammateIdle` | Когда teammate в Agent Teams уходит в idle | Да (exit 2) | нет matcher |
 | `TaskCompleted` | Когда задача помечается как завершённая | Да (exit 2) | нет matcher |
-| `ConfigChange` | При изменении конфига во время сессии | Нет | `user_settings`, `project_settings`, `local_settings`, `policy_settings`, `skills` |
+| `ConfigChange` | При изменении конфига во время сессии | Да (exit 2 или JSON `decision: "block"`), кроме `policy_settings` | `user_settings`, `project_settings`, `local_settings`, `policy_settings`, `skills` |
 | `WorktreeCreate` | При создании worktree | Да (заменяет git) | нет matcher |
 | `WorktreeRemove` | При удалении worktree | Нет | нет matcher |
 | `PreCompact` | Перед компакцией контекста | Нет | `manual`, `auto` |
@@ -485,6 +493,10 @@ Hooks обеспечивают детерминированный контрол
 > ⚠️ **Не все события поддерживают все три типа.** Типы `prompt` и `agent` доступны только для 8 событий: `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, `PreToolUse`, `Stop`, `SubagentStop`, `TaskCompleted`, `UserPromptSubmit`. Остальные 9 событий поддерживают **только** `type: "command"`.
 >
 > ⚠️ **КРИТИЧНО для quality gates:** `type: "prompt"` и `type: "agent"` для `SubagentStop` отправляют feedback, но **НЕ предотвращают завершение** субагента (Issue #20221, открыт). Для quality gates используйте **только** `type: "command"` с exit code 2 или JSON `{"decision": "block"}`.
+>
+> ⚠️ **`type: "prompt"` опасен для ВСЕХ событий** (не только SubagentStop): при сбое prompt hook вызывает экспоненциальный рост payload и бесконечный retry loop (1KB → 2KB → ... → 453MB), генерируя 800MB+ debug логов за минуты (Issue #17249). **Рекомендация: `type: "command"` — единственный надёжный тип для production.**
+>
+> ⚠️ **SubagentStop hooks ненадёжны даже с `type: "command"`** — Issue #27755 (открыт, Feb 2026) документирует ~42% failure rate: hooks не срабатывают, срабатывают с пустым `agent_type`, или не имеют соответствующего SubagentStart. **Для critical quality gates необходим fallback-механизм** (CI, ручная проверка).
 
 #### settings.json — hooks для режима Subagents (основной вариант)
 
@@ -526,6 +538,7 @@ Hooks обеспечивают детерминированный контрол
 >
 > ⚠️ **НЕ существует** значения `"approve"` для Stop/SubagentStop. Для PreToolUse используется `hookSpecificOutput.permissionDecision` со значениями `"allow"` / `"deny"` / `"ask"` (см. таблицу ниже).
 > ⚠️ Поле `"reason"` — для блокировки (передаётся Claude вместе с `"decision": "block"`). Поле `"systemMessage"` — отдельное универсальное поле (показывает предупреждение юзеру). Оба существуют, но имеют разное назначение.
+> ⚠️ **Надёжность:** SubagentStop hooks срабатывают в ~58% случаев (Issue #27755). Этот скрипт — необходимый, но не достаточный quality gate. CI pipeline — обязательный fallback.
 
 ```bash
 #!/bin/bash
@@ -885,8 +898,9 @@ All AI agents must follow the 4-phase process:
 | **Implementation: Arch Reviewer** | Custom Subagent | `.claude/agents/arch-reviewer.md` |
 | **Implementation: Security Reviewer** | Custom Subagent | `.claude/agents/security-reviewer.md` |
 | **Implementation: Plan Compliance** | Custom Subagent | `.claude/agents/plan-compliance.md`, `model: haiku` |
-| **Quality Gates (Subagents)** | `SubagentStop` hook (`type: command` только!) | JSON `{"decision": "block", "reason": "..."}` или exit 2 + stderr |
+| **Quality Gates (Subagents)** | `SubagentStop` hook (`type: command` только!) | JSON `{"decision": "block", "reason": "..."}` или exit 2 + stderr. ⚠️ Ненадёжно (#27755), CI — обязательный fallback |
 | **Quality Gates (Agent Teams)** | `TeammateIdle` hook | exit 2 блокирует teammate |
+| **Quality Gates (CI fallback)** | CI pipeline | Последний рубеж: линтеры, тесты, security-проверки. Компенсирует ненадёжность SubagentStop hooks |
 | **Quality Gates: автоформатирование** | `PostToolUse` hook | matcher `Edit\|Write` → lint-on-edit.sh |
 | **Параллельные сессии без конфликтов** | Git Worktrees | `claude --worktree` или `isolation: worktree` в subagent |
 | **Сложная координация между агентами** | Agent Teams (experimental) | `settings.json` → `{"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}` |
@@ -902,7 +916,7 @@ All AI agents must follow the 4-phase process:
 ### Subagents vs Agent Teams
 
 - **Subagents** — работают внутри одной сессии. Lead запускает их через Task tool. Они не общаются между собой — только репортят обратно Lead-агенту. Достаточно для большинства задач.
-- **Agent Teams** — отдельные Claude Code процессы, могут общаться напрямую (через inbox-файлы или мессенджинг). Нужны только когда требуется настоящая параллельная работа с коммуникацией между агентами (например, тестировщик должен передать детали ошибки напрямую разработчику).
+- **Agent Teams** — отдельные Claude Code процессы, могут общаться напрямую через Mailbox-систему (message одному teammate или broadcast всем). Нужны только когда требуется настоящая параллельная работа с коммуникацией между агентами (например, тестировщик должен передать детали ошибки напрямую разработчику). ⚠️ SendMessage молча теряет сообщения при несовпадении имени получателя (Issue #25135).
 
 ### Quality gate hooks: два разных механизма
 
@@ -919,6 +933,9 @@ All AI agents must follow the 4-phase process:
 > ⚠️ Поля `"approve"` **НЕ существует** для Stop/SubagentStop. Чтобы разрешить — не возвращайте decision.
 > ⚠️ Поле `"reason"` — для блокировки (передаётся Claude). Поле `"systemMessage"` — универсальное поле для всех hook-типов (показывает предупреждение юзеру). Оба существуют, разное назначение.
 > ⚠️ Обязательно проверяйте `stop_hook_active` во входном JSON чтобы избежать бесконечных циклов.
+> ⚠️ **Надёжность:** SubagentStop hooks ненадёжны (~42% failure rate, Issue #27755). CI — обязательный fallback.
+>
+> Полная таблица JSON-решений по типам событий — см. секцию "JSON-решения по типам событий" выше.
 
 **Альтернативный механизм** (проще): exit code `2` + stderr → блокирует, stderr передаётся Claude.
 
@@ -954,12 +971,15 @@ All AI agents must follow the 4-phase process:
 
 | Событие | Поля решения | Значения |
 |---|---|---|
-| `PreToolUse` | `hookSpecificOutput.permissionDecision` | `"allow"` / `"deny"` / `"ask"` |
-| `PermissionRequest` | `hookSpecificOutput.decision.behavior` | `"allow"` / `"deny"` |
-| `PostToolUse` | `decision` | `"block"` (feedback) / undefined |
+| `PreToolUse` | `hookSpecificOutput.permissionDecision` | `"allow"` / `"deny"` / `"ask"`. Доп. поля: `updatedInput` (модификация tool input), `additionalContext` |
+| `PermissionRequest` | `hookSpecificOutput.decision.behavior` | `"allow"` / `"deny"`. Доп. поля: `updatedInput`, `updatedPermissions`, `message`, `interrupt` |
+| `PostToolUse` | `decision` | `"block"` (feedback) / undefined. Доп. поля: `additionalContext`, `updatedMCPToolOutput` |
 | `Stop` / `SubagentStop` | `decision` | `"block"` / undefined |
+| `ConfigChange` | `decision` | `"block"` (блокирует изменение конфига, кроме `policy_settings`) / undefined |
 
-Это детерминированный механизм: агент не может завершить фазу, пока не пройдут все quality gates. Не зависит от LLM.
+> ⚠️ При использовании `hookSpecificOutput` необходимо включить поле `hookEventName` с именем события.
+
+Это детерминированный механизм: агент не может завершить фазу, пока не пройдут все quality gates. Не зависит от LLM. **Однако**: SubagentStop hooks ненадёжны (~42% failure rate, Issue #27755) — CI остаётся необходимым финальным рубежом.
 
 ### Изоляция контекстных окон
 
@@ -1134,7 +1154,7 @@ claude plugin install <plugin-name>
 /plugin  # → вкладка Discover → Add
 ```
 
-**Маркетплейс:** 28+ официальных плагинов в `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/`.
+**Маркетплейс:** ~30 официальных плагинов в marketplace `claude-plugins-official` (LSP-интеграции, внешние сервисы, workflow, output styles).
 
 **Использование для методологии:** плагин может упаковать все agents/, hooks/, commands/ из методологии в один устанавливаемый пакет, распространяемый между проектами команды.
 
@@ -1346,13 +1366,75 @@ cd /path/to/worktree && claude "Edit parsers.py"
 ---
 
 #### [Issue #20221] `type: "prompt"` SubagentStop hooks не блокируют завершение
-**Статус:** открыт (январь 2026)
+**Статус:** открыт (январь 2026), stale
 
 SubagentStop hooks с `type: "prompt"` корректно оценивают и отправляют feedback субагенту, но **не предотвращают его завершение**. Субагент всё равно останавливается.
 
 **Влияние на методологию:** quality gates через prompt-хуки не работают как блокирующие гейты.
 
-**Обходной путь:** для quality gates использовать **только** `type: "command"` с exit code 2 или JSON `{"decision": "block"}`.
+**Обходной путь:** для quality gates использовать **только** `type: "command"` с exit code 2 или JSON `{"decision": "block"}`. Но см. также #27755 — даже command hooks ненадёжны.
+
+---
+
+#### [Issue #27755] SubagentStart/SubagentStop hooks ненадёжны (даже `type: command`)
+**Статус:** открыт (22 февраля 2026)
+
+SubagentStart и SubagentStop hooks не срабатывают надёжно при конфигурации через settings.json. SubagentStart "часто отсутствует", SubagentStop срабатывает с пустым `agent_type` или не срабатывает вовсе. Reporter имеет 370+ трейсов агентов с **~42% failure rate**.
+
+**Влияние на методологию:** **КРИТИЧНО** — quality gates через SubagentStop hooks, на которые опирается вся Implementation фаза, могут не сработать в ~42% случаев. Документ ранее рекомендовал `type: command` SubagentStop как надёжный workaround для #20221, но этот issue показывает, что даже command hooks ненадёжны.
+
+**Обходной путь:** `type: command` SubagentStop **необходим** (prompt/agent точно не работают), но **не гарантирован**. Для critical quality gates необходим fallback: CI pipeline как последний рубеж, ручная проверка перед merge.
+
+---
+
+#### [Issue #25147] Background-агенты обходят Stop hooks
+**Статус:** открыт (12 февраля 2026)
+
+При запуске субагентов с `run_in_background=True` (или `background: true` в frontmatter), Stop hooks **полностью обходятся**. Quality gates (тесты, линтинг, policy checks) не выполняются для фоновых агентов.
+
+**Влияние на методологию:** параллельный запуск Research-субагентов с `background: true` не позволит применить quality gates.
+
+**Обходной путь:** не использовать `background: true` для агентов, требующих проверки через Stop/SubagentStop hooks. Либо добавить внешний контроль (CI).
+
+---
+
+#### [Issue #17249] `type: prompt` hooks — экспоненциальный рост payload
+**Статус:** открыт (январь 2026), stale
+
+При сбое prompt hook вызывает бесконечный retry loop с экспоненциальным ростом payload (1KB → 2KB → 4KB → ... → 453MB), генерируя 800MB+ debug логов за минуты.
+
+**Влияние на методологию:** `type: "prompt"` опасен для **всех** событий, не только SubagentStop. Может привести к OOM или заполнению диска.
+
+**Обходной путь:** **не использовать `type: "prompt"` hooks в production**. Только `type: "command"`.
+
+---
+
+#### [Issue #25135] Agent Teams: SendMessage молча теряет сообщения
+**Статус:** открыт (12 февраля 2026)
+
+Если teammate использует alias или character name вместо точного зарегистрированного имени, сообщение записывается в orphaned inbox file, который никто не читает. `SendMessage` возвращает `success: true`.
+
+**Влияние на методологию:** ненадёжная коммуникация в Agent Teams. Координация между агентами может молча ломаться.
+
+**Обходной путь:** убедиться, что все teammates используют точные имена при отправке сообщений. Предпочесть Subagents для надёжной координации.
+
+---
+
+#### [Issue #20942] Subagent resume fails с 3+ tool uses
+**Статус:** открыт (январь 2026), stale
+
+Если субагент выполнил 3+ tool uses в первом вызове, последующий `resume` вызывает 400 API error. Порог детерминирован: ≤2 tool uses = resume работает, ≥3 = fails.
+
+**Влияние:** ломает long-running субагенты, которые нужно resume.
+
+---
+
+#### [Issue #18057] Subagent crash при вызове несуществующего skill
+**Статус:** открыт (январь 2026), stale
+
+Если субагент вызывает skill, который не существует, весь Claude Code **аварийно завершается** (Abort()), убивая parent process.
+
+**Влияние:** hard crash всего CLI. Не делегировать skill invocation субагентам без проверки наличия skill.
 
 ---
 
@@ -1391,19 +1473,25 @@ SubagentStop hooks с `type: "prompt"` корректно оценивают и 
 
 Официально задокументированы ограничения:
 
-- **Session resumption** — возобновление сессии Agent Team ненадёжно
-- **Task coordination** — возможны race conditions при координации задач
+- **Session resumption** — `/resume` и `/rewind` не восстанавливают in-process teammates
+- **Task status lag** — teammates иногда не отмечают задачи как завершённые, блокируя зависимые задачи (task claiming использует file locking)
 - **Shutdown behavior** — медленное завершение teammates (ждут окончания текущего запроса/tool-вызова)
 - **Lead does work itself** — без Delegate Mode lead часто сам пишет код вместо делегирования
+- **One team per session** — нельзя создать несколько teams в одной сессии
+- **No nested teams** — teammates не могут спаунить свои teams
+- **Lead is fixed** — нельзя передать лидерство другому агенту
+- **Permissions set at spawn** — нельзя изменить разрешения teammate после старта
+- **Split panes** — требуется tmux или iTerm2 для отображения
+- **SendMessage silent loss** — сообщения молча теряются при несовпадении имени получателя (Issue #25135)
 
-**Delegate Mode:** Ограничивает Lead координацией, запрещая прямое написание кода. Это напрямую соответствует методологии ("Lead никогда не пишет код сам"). Keybinding для активации (`Shift+Tab`) упоминается в community-источниках (claudefast.com), но **не подтверждён** официальной документацией Anthropic. В официальных docs рекомендуется указывать в промте: "Wait for your teammates to complete their tasks before proceeding."
+**Delegate Mode:** Ограничивает Lead координацией, запрещая прямое написание кода. Это напрямую соответствует методологии ("Lead никогда не пишет код сам"). Активируется через `Shift+Tab` после создания team (задокументировано в [официальных docs](https://code.claude.com/docs/en/agent-teams): "press Shift+Tab to cycle into delegate mode"). Дополнительно в official docs рекомендуется указывать в промте: "Wait for your teammates to complete their tasks before proceeding."
 
 **Best practices для Agent Teams:**
 
 - Давать каждому teammate **явные файловые границы** в spawn-промте
 - Использовать Delegate Mode по умолчанию
 - Agent Teams потребляют **значительно больше токенов** чем одна сессия (каждый teammate — отдельный Claude-инстанс)
-- Nicholas Carlini (Anthropic) построил C-компилятор с 16 агентами: 100K строк Rust, ~$20K API costs, ~2000 сессий. ⚠️ Использовал **кастомную оркестрацию** (Docker + git-based task locking), а не встроенный Agent Teams API
+- Nicholas Carlini (Anthropic) построил C-компилятор с 16 агентами: 100K строк Rust, ~$20K API costs, ~2000 сессий. ⚠️ Использовал **кастомную оркестрацию** (Docker + git-based task locking), послужившую исследовательским прототипом для текущего Agent Teams API
 
 **Вывод:** Agent Teams не готовы для production-использования с жёсткими quality gates. Для надёжной реализации методологии предпочесть **Subagents + `SubagentStop` hook** вместо Agent Teams + `TeammateIdle`.
 
@@ -1429,12 +1517,17 @@ SubagentStop hooks с `type: "prompt"` корректно оценивают и 
 | Research (isolation: worktree) | Path resolution bug (#17927) | Использовать абсолютные пути в промтах субагентов |
 | Research (isolation: worktree) | Task list leak (#24754) | Не полагаться на встроенные task lists; использовать файловые артефакты |
 | Research (isolation: worktree) | Commands duplication (#27069) | Косметическая проблема, не критично |
-| Implementation (Agent Teams) | Experimental, known limitations | Использовать Subagents + SubagentStop вместо Agent Teams для начала |
+| Research (background: true) | Background agents bypass Stop hooks (#25147) | Не использовать `background: true` для агентов с quality gates |
+| Implementation (Agent Teams) | Experimental, known limitations, silent message loss (#25135) | Использовать Subagents + SubagentStop вместо Agent Teams для начала |
 | Coordination (tmux + --worktree) | --tmux --worktree bug (#27562) | Не комбинировать --tmux и --worktree через CLI |
 | Quality gates (SubagentStop) | prompt/agent hooks не блокируют (#20221) | Использовать **только** `type: "command"` для quality gates |
+| Quality gates (SubagentStop) | command hooks ~42% failure rate (#27755) | `type: command` необходим, но не гарантирован. **CI — обязательный fallback** |
+| Quality gates (prompt hooks) | Экспоненциальный рост payload (#17249) | **Не использовать `type: "prompt"` в production** |
 | Quality gates | — | SubagentStop надёжнее TeammateIdle для текущего состояния |
 | Subagent tools/disallowedTools | Не блокирует MCP tools (#25589) | Не подключать ненужные mcpServers к субагентам |
 | Skills allowed-tools | Не enforce-ится (#14956) | Ограничивать инструменты через subagent `tools`, не через skills |
+| Subagent resume | Fails с 3+ tool uses (#20942) | Не полагаться на resume для долгих субагентов |
+| Subagent + skills | Crash при несуществующем skill (#18057) | Проверять наличие skill перед делегированием |
 
 ---
 
@@ -1455,17 +1548,22 @@ SubagentStop hooks с `type: "prompt"` корректно оценивают и 
 - **Начать с Subagents-only** (без Agent Teams) — надёжнее, проверено community
 - **Использовать exit code 2 + stderr** для quality gates — проще чем JSON, работает надёжно
 - **Только `type: "command"` для SubagentStop quality gates** — prompt/agent хуки не блокируют завершение (#20221)
+- **Не использовать `type: "prompt"` hooks в production** — экспоненциальный рост payload и бесконечные retry loops (#17249)
+- **CI — обязательный fallback для quality gates** — SubagentStop hooks ненадёжны (~42% failure rate, #27755). CI остаётся последним рубежом
+- **Не использовать `background: true` для агентов с quality gates** — Stop hooks обходятся (#25147)
 - **Не использовать `allowed-tools` в Skills** — баг, не enforce-ится. Ограничения — только через subagent `tools`
 - **Не подключать лишние `mcpServers` к субагентам** — `disallowedTools` не блокирует MCP tools (#25589)
 - **Абсолютные пути в промтах субагентов** — обход бага worktree path resolution (#17927)
 - **`stop_hook_active` проверка** в Stop/SubagentStop hooks — предотвращает бесконечные циклы
 - **Не комбинировать `--tmux` и `--worktree`** через CLI (#27562)
 - **Файловые артефакты вместо task lists** при работе с worktrees — task state leaks (#24754)
+- **Не делегировать skill invocation субагентам** без проверки наличия skill — crash всего CLI (#18057)
 
 ### Продвинутые возможности (после MVP)
 
 - **Plugin** — упаковать всё в plugin для переиспользования между проектами
-- **Agent Teams + Delegate Mode** — когда стабилизируется
+- **Agent Teams + Delegate Mode (Shift+Tab)** — когда стабилизируется
 - **`claude --remote` / `--teleport`** — для внешней orchestration
 - **Agent SDK** — программная оркестрация для CI/CD интеграции
 - **`PreCompact` hook** — backup transcript перед компакцией контекста
+- **CI-интеграция через Agent SDK** — программный запуск агентов в CI pipeline как fallback для ненадёжных SubagentStop hooks
