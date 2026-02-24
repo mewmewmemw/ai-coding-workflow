@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит детальный reference по всем примитивам Claude Code.
 > Известные баги и workarounds — см. `research-cc-known-issues.md`.
 
-> Верифицировано по версии **v2.1.50-51** (февраль 2026). Пять раундов ревью (exa + context7 + GitHub issues, 5 параллельных агентов верификации).
+> Верифицировано по версии **v2.1.50-51** (февраль 2026). Шесть раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, 5 параллельных агентов верификации).
 
 ---
 
@@ -39,7 +39,7 @@
 >
 > **Resume и транскрипты:** Субагенты можно resume с полной историей. Транскрипты хранятся в `~/.claude/projects/{project}/{sessionId}/subagents/agent-{agentId}.jsonl`. ⚠️ Resume ломается при 3+ tool uses в первом вызове (Issue #20942).
 >
-> **Auto-compaction:** Субагенты поддерживают auto-compaction при ~95% ёмкости контекста, настраивается через `CLAUDE_CODE_AUTOCOMPACT_PCT_OVERRIDE`.
+> **Auto-compaction:** Субагенты поддерживают auto-compaction при ~95% ёмкости контекста, настраивается через `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`.
 
 ### Built-in субагенты
 
@@ -89,9 +89,11 @@
 // 2. prompt — LLM-оценка (⚠️ ОПАСНО — см. ниже)
 { "type": "prompt", "prompt": "..." }
 
-// 3. agent — запускает субагента (использует prompt, не agent field)
+// 3. agent — запускает субагента (использует prompt, не agent field, до 50 turns)
 { "type": "agent", "prompt": "Verify that all quality gates pass...", "timeout": 60 }
 ```
+
+> **Response schema для prompt/agent hooks:** Модель должна вернуть JSON: `{ "ok": true }` → действие разрешено; `{ "ok": false, "reason": "..." }` → действие заблокировано, `reason` передаётся Claude. В prompt field можно использовать `$ARGUMENTS` — заменяется на JSON входных данных hook.
 
 > **Common handler fields** (для всех типов): `type` (обязателен), `timeout` (seconds; defaults: 600 для command, 30 для prompt, 60 для agent), `statusMessage` (опционально, показывается юзеру во время выполнения), `once` (опционально, только для skills — запускается один раз за сессию, затем удаляется).
 >
@@ -131,6 +133,10 @@
 | `ConfigChange` | `decision` | `"block"` (блокирует изменение конфига, кроме `policy_settings`) / undefined |
 
 > ⚠️ При использовании `hookSpecificOutput` необходимо включить поле `hookEventName` с именем события.
+>
+> **Дополнительные output-поля:** `SessionStart`, `SubagentStart` и `Notification` также поддерживают `additionalContext` через `hookSpecificOutput` (без decision control). `UserPromptSubmit` — `additionalContext` тоже через `hookSpecificOutput`, не top-level.
+>
+> **WorktreeCreate — уникальный механизм:** hook **заменяет** стандартное создание worktree. stdout должен содержать **только** абсолютный путь к созданному worktree. Non-zero exit = worktree не создаётся. Это не стандартный allow/block — hook сам отвечает за создание worktree.
 
 ### Приоритет механизмов контроля
 
@@ -417,12 +423,23 @@ for await (const message of query({
 
 **Delegate Mode** (community-термин, НЕ в official docs): Ограничивает Lead координацией, запрещая прямое написание кода. `Shift+Tab` переключает permission modes в TUI (не специфично для Agent Teams). Official docs рекомендуют промт: "Wait for your teammates to complete their tasks before proceeding." Навигация между teammates: `Shift+Down`.
 
+**Keyboard shortcuts:** `Shift+Down` — навигация между teammates (wraps back to lead), `Ctrl+T` — toggle task list (in-process mode), `Enter` — view teammate's session.
+
 **Display modes:** Настройка `teammateMode` в settings или `--teammate-mode` CLI flag:
 - `"in-process"` — в одном окне (любой терминал)
-- `"tmux"` — split panes через tmux (⚠️ не работает в VS Code terminal, Windows Terminal, Ghostty)
+- `"tmux"` — Split panes (official name) через tmux **или iTerm2** (с `it2` CLI). Setting value `"tmux"`, но работает и с iTerm2. ⚠️ Не работает в VS Code terminal, Windows Terminal, Ghostty
 - `"auto"` (default) — автовыбор
 
-**Коммуникация:** через Mailbox-систему (message одному teammate или broadcast всем). ⚠️ SendMessage молча теряет сообщения при несовпадении имени получателя (Issue #25135).
+**Коммуникация:** через Mailbox-систему (message одному teammate или broadcast всем). ⚠️ SendMessage молча теряет сообщения при несовпадении имени получателя (Issue #25135). ⚠️ Messages могут отправляться по agentType вместо name, создавая orphan inboxes (Issue #25694).
+
+**Official limitations (из документации):**
+- No session resumption с in-process teammates — `/resume` и `/rewind` не восстанавливают
+- Task status can lag — teammates иногда не отмечают задачи как завершённые
+- Shutdown can be slow — teammates ждут окончания текущего запроса
+- One team per session
+- No nested teams — teammates не могут спаунить свои teams
+- Lead is fixed — нельзя передать лидерство
+- Permissions set at spawn — все стартуют с permission mode лида
 
 **Паттерн Swarm через tmux** (community, без Agent Teams API):
 

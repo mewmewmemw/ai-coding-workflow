@@ -4,7 +4,7 @@
 > - Справочник по примитивам — `research-cc-primitives-reference.md`
 > - Известные баги и ограничения — `research-cc-known-issues.md`
 
-> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026 (exa + context7 + GitHub issues, 5 параллельных агентов верификации). Исправления применены по результатам пяти ревью.
+> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026 (6 раундов: exa + context7 + GitHub issues + WebFetch official docs, 5 параллельных агентов верификации). Исправления применены по результатам шести ревью.
 
 ---
 
@@ -141,6 +141,8 @@ When given a task for Research phase:
 
 - Используй `model: haiku` — Research субагенты не пишут код, только читают файлы
 - Это снижает стоимость фазы в несколько раз
+
+> ⚠️ **Ограничение параллелизма:** запуск большого числа параллельных субагентов может вызвать JavaScript heap OOM (4GB) и crash CLI (Issue #19100). Рекомендуется ограничивать до 2-3 параллельных субагентов. `model: haiku` снижает memory footprint.
 
 ### Git Worktrees для изоляции
 
@@ -419,7 +421,7 @@ Output:
 
 ### Hooks: Автоматические quality gates
 
-Hooks обеспечивают детерминированный контроль — агент не может их обойти.
+Hooks обеспечивают детерминированный контроль — агент не может их обойти (с оговорками — см. ниже).
 
 > **Механизмы блокировки:**
 > - **Subagents** → `SubagentStop` hook: exit code `2` + stderr или JSON `{"decision": "block", "reason": "..."}`
@@ -429,6 +431,8 @@ Hooks обеспечивают детерминированный контрол
 > Полный список 17 hook-событий, JSON-формат, handler types — см. `research-cc-primitives-reference.md` → Hooks.
 >
 > ⚠️ **КРИТИЧНО:** Используйте **только `type: "command"`** для quality gates. `type: "prompt"` и `type: "agent"` для SubagentStop **не блокируют завершение** (Issue #20221). SubagentStop hooks ненадёжны даже с `type: command` (~42% failure rate, Issue #27755). **CI — обязательный fallback.** Подробнее — см. `research-cc-known-issues.md`.
+>
+> ⚠️ **[SECURITY]** `PreToolUse` hooks **полностью обходятся субагентами** (Issue #21460). Не полагайтесь на PreToolUse как security boundary при использовании субагентов. Ограничивайте tools через frontmatter `tools`/`disallowedTools`.
 
 #### settings.json — hooks для режима Subagents (основной вариант)
 
