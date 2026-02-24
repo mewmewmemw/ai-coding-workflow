@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит детальный reference по всем примитивам Claude Code.
 > Известные баги и workarounds — см. `research-cc-known-issues.md`.
 
-> Верифицировано по версии **v2.1.50-51** (февраль 2026). Семь раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации).
+> Верифицировано по версии **v2.1.50-51** (февраль 2026). Восемь раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации).
 
 ---
 
@@ -24,7 +24,7 @@
 | `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` | Режим разрешений для субагента |
 | `mcpServers` | нет | объект (имя сервера → ссылка на уже настроенный сервер или inline definition с полной конфигурацией) | MCP-серверы, доступные субагенту |
 | `skills` | нет | массив | Skills, доступные субагенту. Полный контент SKILL.md инжектируется при старте (не только description). ⚠️ Субагенты **не наследуют** skills от родительской сессии — нужно указывать явно |
-| `memory` | нет | enum: `user`, `project`, `local`. Пути: `user` → `~/.claude/agent-memory/<name>/`, `project` → `.claude/agent-memory/<name>/`, `local` → `.claude/agent-memory-local/<name>/` | Включает персистентную директорию памяти. Автоматически включает Read, Write, Edit tools. Первые 200 строк `MEMORY.md` включаются в system prompt |
+| `memory` | нет | enum: `user`, `project`, `local`. Пути: `user` → `~/.claude/agent-memory/<name-of-agent>/`, `project` → `.claude/agent-memory/<name-of-agent>/`, `local` → `.claude/agent-memory-local/<name-of-agent>/` | Включает персистентную директорию памяти. Автоматически включает Read, Write, Edit tools. Первые 200 строк `MEMORY.md` включаются в system prompt |
 | `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу. ⚠️ MCP tools недоступны в background subagents; неодобренные разрешения автоматически отклоняются; Stop hooks **не срабатывают** (Issue #25147) |
 
 > **Про `color`:** Поле `color` работает на практике — quickstart упоминает "Choose a color: Pick a background color for the subagent", и используется в SKILL.md плагина plugin-dev. Конкретные значения (`blue`, `cyan`, `green`, `yellow`, `magenta`, `red`) — из observation/plugin-dev, official docs их не перечисляют. Поле **отсутствует** в официальной reference table "Supported frontmatter fields".
@@ -45,7 +45,7 @@
 
 | Субагент | Описание |
 |---|---|
-| `Explore` | Быстрое исследование кодовой базы (поиск файлов, grep, чтение) |
+| `Explore` | Быстрое исследование кодовой базы (поиск файлов, grep, чтение). Thoroughness levels: `quick`, `medium`, `very thorough` |
 | `Plan` | Проектирование плана реализации |
 | `general-purpose` | Универсальный агент для сложных многошаговых задач |
 | `Bash` | Специалист по выполнению shell-команд |
@@ -107,7 +107,7 @@
 
 - `exit 0` — успех, stdout парсится как JSON для структурного контроля. ⚠️ Для большинства событий stdout видим только в verbose mode (`Ctrl+O`). Исключения: `UserPromptSubmit` и `SessionStart` — stdout добавляется как контекст, который Claude видит и на который может реагировать
 - `exit 2` — блокирующая ошибка, stderr передаётся обратно Claude (stdout и JSON в нём **игнорируются**)
-- любой другой — неблокирующая ошибка, stderr показывается юзеру, выполнение продолжается
+- любой другой — неблокирующая ошибка, stderr показывается в verbose mode (`Ctrl+O`), выполнение продолжается
 
 ### JSON: Universal Fields (доступны для ВСЕХ hook-типов)
 
@@ -116,7 +116,7 @@
   "continue": true,         // false → Claude полностью останавливается
   "stopReason": "string",   // сообщение при continue:false (показывается юзеру, НЕ Claude)
   "suppressOutput": false,  // true → stdout скрыт из verbose mode output
-  "systemMessage": "string" // предупреждение, показываемое юзеру. Для sync hooks НЕ передаётся Claude. ⚠️ Для async hooks — доставляется Claude как контекст на следующем turn
+  "systemMessage": "string" // предупреждение, показываемое юзеру (official docs: "Warning message shown to the user"). ⚠️ Для async hooks — доставляется Claude как контекст на следующем turn
 }
 ```
 
@@ -222,7 +222,7 @@ Hooks настраиваются через `.claude/settings.json` (project-lev
 
 > ⚠️ **Hooks snapshot:** Прямые правки hooks в settings файлах **не применяются мгновенно**. Claude Code захватывает snapshot hooks при старте сессии. При внешних изменениях выдаёт предупреждение и требует ревью в `/hooks` menu. Hooks, добавленные через `/hooks`, применяются мгновенно.
 >
-> **`disableAllHooks`** — поле в settings для временного отключения всех hooks. ⚠️ Учитывает иерархию managed settings: если hooks заданы через managed policy, `disableAllHooks` на уровне user/project/local **не может** их отключить.
+> **`disableAllHooks`** — поле в settings для временного отключения всех hooks **и кастомного status line**. ⚠️ Учитывает иерархию managed settings: если hooks заданы через managed policy, `disableAllHooks` на уровне user/project/local **не может** их отключить.
 >
 > **`allowManagedHooksOnly`** — enterprise-настройка: блокирует user, project и plugin hooks, оставляя только managed и SDK hooks.
 
@@ -233,6 +233,13 @@ Hooks настраиваются через `.claude/settings.json` (project-lev
 - `$CLAUDE_PLUGIN_ROOT` — корневая директория плагина (для plugin hooks)
 - `$CLAUDE_ENV_FILE` — путь к файлу для персистентных env vars (только в `SessionStart` hooks)
 - `$CLAUDE_CODE_REMOTE` — `"true"` в remote web environments, не установлена в локальном CLI
+
+**Дополнительные важные env vars (из settings reference):**
+- `CLAUDE_CODE_SUBAGENT_MODEL` — переопределяет модель для всех субагентов
+- `CLAUDE_CODE_EFFORT_LEVEL` — уровень усилий модели (low/medium/high)
+- `MAX_THINKING_TOKENS` — максимум токенов на thinking
+- `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` — отключает фоновые задачи
+- `ENABLE_TOOL_SEARCH` — включает поиск по отложенным инструментам
 
 **Получение tool input:**
 
@@ -316,7 +323,7 @@ my-plugin/
   "name": "my-methodology-plugin",
   "version": "1.0.0",
   "description": "Context engineering methodology agents and hooks",
-  "author": { "name": "Team", "email": "team@example.com" },
+  "author": { "name": "Team", "email": "team@example.com", "url": "https://github.com/team" },
   "homepage": "https://github.com/team/plugin",
   "repository": "https://github.com/team/plugin",
   "license": "MIT",
@@ -333,7 +340,7 @@ my-plugin/
 
 **CLI-команды для плагинов:**
 ```bash
-claude plugin install <plugin-name> [--scope user|project|local]
+claude plugin install <plugin-name> [--scope user|project|local]  # default scope: user
 claude plugin uninstall <plugin-name>   # aliases: remove, rm
 claude plugin enable <plugin-name>
 claude plugin disable <plugin-name>
@@ -342,6 +349,8 @@ claude plugin update <plugin-name>
 ```
 
 **Разработка:** `claude --plugin-dir ./my-plugin` — загрузка плагина из директории (только для текущей сессии).
+
+**Кеширование:** Marketplace-плагины копируются в локальный кеш (`~/.claude/plugins/cache`). Плагины из `--plugin-dir` **не** кешируются. Path traversal не работает после установки. Symlinks сохраняются при копировании.
 
 **Маркетплейс:** Официальный marketplace `claude-plugins-official` содержит плагины для LSP-интеграций, внешних сервисов, workflow и output styles (точное количество не документировано).
 
@@ -385,6 +394,10 @@ claude plugin update <plugin-name>
 - `"auto"` (default) — автовыбор
 
 **Коммуникация:** через Mailbox-систему (message одному teammate или broadcast всем). ⚠️ SendMessage молча теряет сообщения при несовпадении имени получателя (Issue #25135). ⚠️ Messages могут отправляться по agentType вместо name, создавая orphan inboxes (Issue #25694).
+
+**Plan approval для teammates:** Lead может потребовать от teammate планирование перед реализацией — teammate работает в read-only plan mode до одобрения lead.
+
+**Shutdown protocol:** Lead отправляет shutdown request teammate'у. Teammate может одобрить или отклонить запрос на завершение.
 
 **Official limitations (из документации):**
 - No session resumption с in-process teammates — `/resume` и `/rewind` не восстанавливают
@@ -464,6 +477,11 @@ exit 0
 | `claude update` | Обновление Claude Code |
 | `claude mcp` | Управление MCP серверами |
 | `claude plugin install\|uninstall\|enable\|disable\|update` | Управление плагинами |
+| `claude --tools "tool1,tool2"` | Ограничить доступные инструменты |
+| `claude --chrome` / `--no-chrome` | Включение/отключение Chrome browser integration |
+| `claude --fork-session` | Создать новый session ID при resume |
+| `claude --from-pr <url>` | Возобновить сессию, привязанную к PR |
+| `claude --dangerously-skip-permissions` | Пропуск всех permission prompts (⚠️ опасно) |
 
 ### Ключевые TUI slash-команды
 
@@ -501,6 +519,7 @@ exit 0
 | `/desktop` | Передать в Claude Code Desktop app |
 | `/todos` | Список текущих TODO-элементов |
 | `/usage` | Показать лимиты плана и rate limit status |
+| `/terminal-setup` | Настройка terminal key bindings |
 
 ---
 
