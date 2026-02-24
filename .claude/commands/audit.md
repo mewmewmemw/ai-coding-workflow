@@ -1,5 +1,5 @@
 ---
-name: review
+name: audit
 description: |
   Run independent critical review of all documentation files. Spawns 4 parallel verification agents,
   consolidates findings, validates via context7/exa, and presents corrections for approval.
