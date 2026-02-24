@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит детальный reference по всем примитивам Claude Code.
 > Известные баги и workarounds — см. `research-cc-known-issues.md`.
 
-> Верифицировано по версии **v2.1.50-51** (февраль 2026). Девять раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации).
+> Верифицировано по версии **v2.1.50-51** (февраль 2026). Десять раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации).
 
 ---
 
@@ -18,14 +18,14 @@
 | `model` | нет | `haiku`, `sonnet`, `opus`, `inherit` | `inherit` — наследует от родителя (default) |
 | `tools` | нет | массив или строка. Поддерживает синтаксис `Task(agent_type)` для ограничения спауна субагентов (только `claude --agent`) | Ограничивает доступные инструменты (whitelist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
 | `disallowedTools` | нет | массив или строка | Запрещает конкретные инструменты (blacklist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
-| `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree |
+| `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree. Worktree автоматически удаляется, если субагент не внёс изменений |
 | `hooks` | нет | объект (как в settings.json) | Hooks, привязанные к жизненному циклу субагента |
 | `maxTurns` | нет | число | Максимальное количество turn-ов (лимит работы субагента) |
-| `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` | Режим разрешений для субагента |
+| `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` | Режим разрешений для субагента. ⚠️ Если родитель использует `bypassPermissions`, это значение имеет приоритет и не может быть переопределено субагентом |
 | `mcpServers` | нет | объект (имя сервера → ссылка на уже настроенный сервер или inline definition с полной конфигурацией). ⚠️ В `--agents` JSON формат отличается: **массив** (array), а не объект | MCP-серверы, доступные субагенту |
 | `skills` | нет | массив | Skills, доступные субагенту. Полный контент SKILL.md инжектируется при старте (не только description). ⚠️ Субагенты **не наследуют** skills от родительской сессии — нужно указывать явно |
 | `memory` | нет | enum: `user`, `project`, `local`. Пути: `user` → `~/.claude/agent-memory/<name-of-agent>/`, `project` → `.claude/agent-memory/<name-of-agent>/`, `local` → `.claude/agent-memory-local/<name-of-agent>/` | Включает персистентную директорию памяти. Автоматически включает Read, Write, Edit tools. Первые 200 строк `MEMORY.md` включаются в system prompt |
-| `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу. ⚠️ MCP tools недоступны; неодобренные разрешения автоматически отклоняются; AskUserQuestion → tool call fails, но субагент продолжает; Stop hooks **не срабатывают** (Issue #25147). `Ctrl+B` переводит запущенную задачу в background |
+| `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу. ⚠️ MCP tools недоступны; перед запуском Claude запрашивает все необходимые разрешения у пользователя, после запуска — auto-deny для всего, что не было одобрено; AskUserQuestion → tool call fails, но субагент продолжает; Stop hooks **не срабатывают** (Issue #25147). Если background-субагент упал из-за missing permissions, можно resume его в foreground. `Ctrl+B` переводит запущенную задачу в background |
 
 > **Про `color`:** Поле `color` работает на практике — quickstart упоминает "Choose a color: Pick a background color for the subagent", и используется в SKILL.md плагина plugin-dev. Конкретные значения (`blue`, `cyan`, `green`, `yellow`, `magenta`, `red`) — из observation/plugin-dev, official docs их не перечисляют. Поле **отсутствует** в официальной reference table "Supported frontmatter fields".
 
@@ -45,14 +45,14 @@
 
 | Субагент | Описание |
 |---|---|
-| `Explore` | Быстрое исследование кодовой базы (поиск файлов, grep, чтение). Thoroughness levels: `quick`, `medium`, `very thorough` |
-| `Plan` | Проектирование плана реализации |
+| `Explore` | Быстрое исследование кодовой базы (поиск файлов, grep, чтение). Model: **Haiku**, read-only tools (Write/Edit denied). Thoroughness levels: `quick`, `medium`, `very thorough` |
+| `Plan` | Research-агент для plan mode: собирает контекст перед формированием плана. Model: **inherit**, read-only tools (Write/Edit denied) |
 | `general-purpose` | Универсальный агент для сложных многошаговых задач |
 | `Bash` | Специалист по выполнению shell-команд |
 | `statusline-setup` | Настройка status line в UI |
 | `claude-code-guide` | Ответы на вопросы о Claude Code |
 
-> **CLI `--agents` JSON:** Поддерживает **11 полей** (description, prompt, tools, disallowedTools, model, permissionMode, mcpServers, hooks, maxTurns, skills, memory). ⚠️ CLI reference table перечисляет 8 полей, но sub-agents page явно указывает все 11. Поля `background`, `isolation`, `color` — **только в file-based формате** (вывод по отсутствию в CLI docs). Вместо markdown body используется поле `prompt` (Required: Yes в CLI reference).
+> **CLI `--agents` JSON:** Поддерживает **11 полей** (description, prompt, tools, disallowedTools, model, permissionMode, mcpServers, hooks, maxTurns, skills, memory). ⚠️ CLI reference table перечисляет 8 полей (missing: `permissionMode`, `hooks`, `memory`), но sub-agents page явно указывает все 11. Поля `background`, `isolation`, `color` — **только в file-based формате** (вывод по отсутствию в CLI docs). Вместо markdown body используется поле `prompt` (Required: Yes в CLI reference).
 
 ---
 
@@ -72,8 +72,8 @@
 | `SubagentStart` | При запуске субагента | Нет | тип агента: `Bash`, `Explore`, `Plan`, custom names |
 | `SubagentStop` | При завершении субагента | Да (exit 2 или JSON) | тип агента (`agent_type`): `Bash`, `Explore`, `Plan`, custom names |
 | `Stop` | Когда Claude завершает ответ | Да (exit 2 или JSON) | нет matcher |
-| `TeammateIdle` | Когда teammate в Agent Teams уходит в idle | Да (exit 2) | нет matcher |
-| `TaskCompleted` | Когда задача помечается как завершённая | Да (exit 2) | нет matcher |
+| `TeammateIdle` | Когда teammate в Agent Teams уходит в idle | Да (exit 2 only, no JSON decision) | нет matcher |
+| `TaskCompleted` | Когда задача помечается как завершённая | Да (exit 2 only, no JSON decision) | нет matcher |
 | `ConfigChange` | При изменении конфига во время сессии | Да (exit 2 или JSON `decision: "block"`), кроме `policy_settings` | `user_settings`, `project_settings`, `local_settings`, `policy_settings`, `skills` |
 | `WorktreeCreate` | При создании worktree | Да (заменяет git) | нет matcher |
 | `WorktreeRemove` | При удалении worktree | Нет | нет matcher |
@@ -134,22 +134,27 @@
 
 > ⚠️ При использовании `hookSpecificOutput` необходимо включить поле `hookEventName` с именем события.
 >
-> **Дополнительные output-поля:** `SessionStart`, `SubagentStart` и `Notification` также поддерживают `additionalContext` через `hookSpecificOutput` (без decision control). `UserPromptSubmit` — `additionalContext` тоже через `hookSpecificOutput`, не top-level.
+> **Дополнительные output-поля:** `SessionStart`, `SubagentStart` и `Notification` также поддерживают `additionalContext` через `hookSpecificOutput` (без decision control; для Notification — inferred по аналогии, explicit JSON example в official docs отсутствует). `UserPromptSubmit` — `additionalContext` тоже через `hookSpecificOutput`, не top-level.
 >
-> **WorktreeCreate — уникальный механизм:** hook **заменяет** стандартное создание worktree. stdout должен содержать **только** абсолютный путь к созданному worktree. Non-zero exit = worktree не создаётся. Это не стандартный allow/block — hook сам отвечает за создание worktree.
+> **WorktreeCreate — уникальный механизм:** hook **заменяет** стандартное создание worktree. stdout должен содержать **только** абсолютный путь к созданному worktree. Non-zero exit или пустой stdout = worktree не создаётся. Это не стандартный allow/block — hook сам отвечает за создание worktree. Только `type: "command"` поддерживается.
 
-### Приоритет механизмов контроля
+### Механизмы контроля (два взаимоисключающих пути)
 
-1. `"continue": false` в JSON — полная остановка Claude
-2. `"decision": "block"` в JSON — блокировка конкретного действия
-3. Exit code `2` — блокировка через stderr
+**Путь 1: JSON** (exit 0 + JSON stdout) — структурный контроль:
+- `"continue": false` — полная остановка Claude (приоритет над `decision`)
+- `"decision": "block"` — блокировка конкретного действия
+
+**Путь 2: Exit code** (exit 2 + stderr) — простой контроль:
+- stderr передаётся Claude как error message, stdout и JSON **игнорируются**
+
+> ⚠️ Official docs: "You must choose one approach per hook, not both." JSON обрабатывается **только** при exit 0. При exit 2 весь JSON игнорируется.
 
 ### Stop/SubagentStop: детали
 
 - Блокировать: `{"decision": "block", "reason": "описание проблемы"}` (exit 0 + JSON)
 - Разрешить: пустой stdout или `{}` (без поля `decision`)
 - Альтернатива: exit code `2` + stderr → тоже блокирует
-- `Stop` hooks для субагентов автоматически конвертируются в `SubagentStop`
+- `Stop` hooks **в agent frontmatter** автоматически конвертируются в `SubagentStop` (не применяется к Stop hooks в settings.json)
 - Проверяйте `stop_hook_active` во входном JSON (или анализируйте transcript) для предотвращения бесконечных циклов
 
 ### Async hooks
@@ -166,7 +171,9 @@
 
 Используй async для: уведомлений, логирования, аналитики.
 
-> ⚠️ **Ограничения async hooks:** не могут блокировать действия или возвращать decisions. К моменту завершения hook триггерящее действие уже выполнено. Результат доставляется Claude на следующем turn; если сессия idle — ждёт следующего взаимодействия. Каждое срабатывание создаёт отдельный background-процесс без дедупликации.
+> ⚠️ **Ограничения async hooks:** не могут блокировать действия или возвращать decisions. К моменту завершения hook триггерящее действие уже выполнено. Результат (`systemMessage`, `additionalContext`) доставляется Claude как контекст на следующем turn; если сессия idle — ждёт следующего взаимодействия. Каждое срабатывание создаёт отдельный background-процесс без дедупликации.
+>
+> **Параллельное выполнение hooks:** все matching hooks запускаются параллельно; идентичные обработчики дедуплицируются автоматически (official docs: "All matching hooks run in parallel, and identical handlers are deduplicated automatically").
 
 ### Hooks в frontmatter субагента
 
@@ -236,7 +243,7 @@ Hooks настраиваются через `.claude/settings.json` (project-lev
 - `$CLAUDE_ENV_FILE` — путь к файлу для персистентных env vars (только в `SessionStart` hooks)
 - `$CLAUDE_CODE_REMOTE` — `"true"` в remote web environments, не установлена в локальном CLI
 
-**Дополнительные важные env vars (из settings reference):**
+**Дополнительные важные env vars (curated subset из 70+ official env vars в settings reference):**
 - `ANTHROPIC_MODEL` — переопределяет модель по умолчанию
 - `CLAUDE_CODE_MAX_OUTPUT_TOKENS` — максимум output-токенов (default 32000, max 64000)
 - `CLAUDE_CODE_SUBAGENT_MODEL` — переопределяет модель для всех субагентов
@@ -244,7 +251,7 @@ Hooks настраиваются через `.claude/settings.json` (project-lev
 - `CLAUDE_CODE_SIMPLE` — минимальный режим UI
 - `MAX_THINKING_TOKENS` — максимум токенов на thinking
 - `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` — отключает фоновые задачи
-- `ENABLE_TOOL_SEARCH` — включает поиск по отложенным инструментам
+- `ENABLE_TOOL_SEARCH` — поиск по отложенным инструментам. Значения: `true` (всегда вкл), `false` (выкл), `auto` (default — включается при >10% контекста на MCP tools), `auto:N` (custom порог)
 
 **Получение tool input:**
 
@@ -398,7 +405,7 @@ claude plugin update <plugin-name> [--scope user|project|local|managed]  # manag
 - `"tmux"` — Split panes (official name) через tmux **или iTerm2** (с `it2` CLI). Setting value `"tmux"`, но работает и с iTerm2. ⚠️ Не работает в VS Code terminal, Windows Terminal, Ghostty
 - `"auto"` (default) — автовыбор
 
-**Коммуникация:** через Mailbox-систему (message одному teammate или broadcast всем). ⚠️ SendMessage молча теряет сообщения при несовпадении имени получателя (Issue #25135). ⚠️ Messages могут отправляться по agentType вместо name, создавая orphan inboxes (Issue #25694).
+**Коммуникация:** через Mailbox-систему (message одному teammate или broadcast всем). ⚠️ SendMessage молча теряет сообщения при несовпадении имени получателя (Issue #25135). ⚠️ Messages могут отправляться по agentType вместо name, создавая orphan inboxes (Issue #25694). ⚠️ Idle-nudge система не различает "ожидание сообщения" и "нечего делать" — агенты уходят в idle до получения сообщений (Issue #28075).
 
 **Plan approval для teammates:** Lead может потребовать от teammate планирование перед реализацией — teammate работает в read-only plan mode до одобрения lead.
 
@@ -471,7 +478,7 @@ exit 0
 | `claude --json-schema <schema>` | Structured JSON output по схеме |
 | `claude --system-prompt "..."` | Кастомный system prompt |
 | `claude --append-system-prompt "..."` | Дополнение к system prompt |
-| `claude --allowedTools "tool1,tool2"` | Whitelist инструментов |
+| `claude --allowedTools "tool1,tool2"` | Tools, которые выполняются **без запроса разрешения** (permission bypass, не ограничение доступности). Для ограничения доступных tools используйте `--tools` |
 | `claude --disallowedTools "tool1"` | Blacklist инструментов |
 | `claude --mcp-config <path>` | Загрузка MCP конфигурации из файла |
 | `claude --plugin-dir <path>` | Загрузка плагина из директории |
@@ -482,11 +489,54 @@ exit 0
 | `claude update` | Обновление Claude Code |
 | `claude mcp` | Управление MCP серверами |
 | `claude plugin install\|uninstall\|enable\|disable\|update` | Управление плагинами |
-| `claude --tools "tool1,tool2"` | Ограничить доступные инструменты |
+| `claude --tools "tool1,tool2"` | Ограничить **доступность** инструментов (tools не в списке полностью недоступны). `""` — отключить все, `"default"` — все включены |
 | `claude --chrome` / `--no-chrome` | Включение/отключение Chrome browser integration |
 | `claude --fork-session` | Создать новый session ID при resume |
 | `claude --from-pr <url>` | Возобновить сессию, привязанную к PR |
 | `claude --dangerously-skip-permissions` | Пропуск всех permission prompts (⚠️ опасно) |
+| `claude --allow-dangerously-skip-permissions` | Включить bypass как **опцию** без активации (для композиции с `--permission-mode`) |
+| `claude --system-prompt-file <path>` | Загрузить system prompt из файла (заменяет default, print mode only) |
+| `claude --append-system-prompt-file <path>` | Дополнить system prompt из файла (print mode only) |
+| `claude --fallback-model <model>` | Автоматический fallback при перегрузке основной модели (print mode only) |
+| `claude --input-format text\|stream-json` | Формат входных данных (print mode) |
+| `claude --no-session-persistence` | Не сохранять сессию на диск, нельзя resume (print mode only) |
+| `claude --session-id <uuid>` | Использовать конкретный UUID для сессии |
+| `claude --settings <path>` | Путь к дополнительному settings JSON |
+| `claude --setting-sources user,project,local` | Какие sources settings загружать |
+| `claude --strict-mcp-config` | Использовать **только** MCP-серверы из `--mcp-config`, игнорируя остальные |
+| `claude --permission-prompt-tool <mcp_tool>` | MCP tool для обработки permission prompts в non-interactive mode |
+| `claude --betas <beta>` | Beta headers для API запросов (API key users only) |
+| `claude --disable-slash-commands` | Отключить все skills и slash commands для сессии |
+| `claude --ide` | Автоматическое подключение к IDE при старте |
+| `claude --init` | Запуск initialization hooks + интерактивный режим |
+| `claude --init-only` | Запуск initialization hooks и выход |
+| `claude --maintenance` | Запуск maintenance hooks и выход |
+| `claude --include-partial-messages` | Включить partial streaming events (requires `--print` + `--output-format stream-json`) |
+| `claude --version` / `-v` | Вывести версию |
+
+### Keyboard shortcuts (interactive mode)
+
+| Shortcut | Описание |
+|---|---|
+| `Ctrl+C` | Отмена текущего ввода или генерации |
+| `Ctrl+D` | Выход из сессии |
+| `Ctrl+O` | Toggle verbose output |
+| `Ctrl+B` | Перевести задачу в background (tmux: нажать дважды) |
+| `Ctrl+F` | Убить все background-агенты (нажать дважды за 3 сек) |
+| `Ctrl+G` | Открыть в текстовом редакторе по умолчанию |
+| `Ctrl+L` | Очистить экран терминала |
+| `Ctrl+R` | Обратный поиск по истории команд |
+| `Ctrl+T` | Toggle task list |
+| `Ctrl+V` / `Cmd+V` / `Alt+V` | Вставить изображение из буфера обмена |
+| `Ctrl+J` | Новая строка (multiline input) |
+| `Shift+Tab` / `Alt+M` | Переключение permission modes |
+| `Option+P` / `Alt+P` | Смена модели |
+| `Option+T` / `Alt+T` | Toggle extended thinking |
+| `Esc+Esc` | Rewind or summarize |
+| `Up/Down` | Навигация по истории |
+| `Left/Right` | Переключение вкладок в диалогах |
+| `!` prefix | Bash mode — выполнить shell-команду напрямую |
+| `@` | Автодополнение путей к файлам |
 
 ### Ключевые TUI slash-команды
 
