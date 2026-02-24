@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит детальный reference по всем примитивам Claude Code.
 > Известные баги и workarounds — см. `research-cc-known-issues.md`.
 
-> Верифицировано по версии **v2.1.50-51** (февраль 2026). Восемь раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации).
+> Верифицировано по версии **v2.1.50-51** (февраль 2026). Девять раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации).
 
 ---
 
@@ -22,10 +22,10 @@
 | `hooks` | нет | объект (как в settings.json) | Hooks, привязанные к жизненному циклу субагента |
 | `maxTurns` | нет | число | Максимальное количество turn-ов (лимит работы субагента) |
 | `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` | Режим разрешений для субагента |
-| `mcpServers` | нет | объект (имя сервера → ссылка на уже настроенный сервер или inline definition с полной конфигурацией) | MCP-серверы, доступные субагенту |
+| `mcpServers` | нет | объект (имя сервера → ссылка на уже настроенный сервер или inline definition с полной конфигурацией). ⚠️ В `--agents` JSON формат отличается: **массив** (array), а не объект | MCP-серверы, доступные субагенту |
 | `skills` | нет | массив | Skills, доступные субагенту. Полный контент SKILL.md инжектируется при старте (не только description). ⚠️ Субагенты **не наследуют** skills от родительской сессии — нужно указывать явно |
 | `memory` | нет | enum: `user`, `project`, `local`. Пути: `user` → `~/.claude/agent-memory/<name-of-agent>/`, `project` → `.claude/agent-memory/<name-of-agent>/`, `local` → `.claude/agent-memory-local/<name-of-agent>/` | Включает персистентную директорию памяти. Автоматически включает Read, Write, Edit tools. Первые 200 строк `MEMORY.md` включаются в system prompt |
-| `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу. ⚠️ MCP tools недоступны в background subagents; неодобренные разрешения автоматически отклоняются; Stop hooks **не срабатывают** (Issue #25147) |
+| `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу. ⚠️ MCP tools недоступны; неодобренные разрешения автоматически отклоняются; AskUserQuestion → tool call fails, но субагент продолжает; Stop hooks **не срабатывают** (Issue #25147). `Ctrl+B` переводит запущенную задачу в background |
 
 > **Про `color`:** Поле `color` работает на практике — quickstart упоминает "Choose a color: Pick a background color for the subagent", и используется в SKILL.md плагина plugin-dev. Конкретные значения (`blue`, `cyan`, `green`, `yellow`, `magenta`, `red`) — из observation/plugin-dev, official docs их не перечисляют. Поле **отсутствует** в официальной reference table "Supported frontmatter fields".
 
@@ -52,7 +52,7 @@
 | `statusline-setup` | Настройка status line в UI |
 | `claude-code-guide` | Ответы на вопросы о Claude Code |
 
-> **CLI `--agents` JSON:** Поддерживает **11 полей** (description, prompt, tools, disallowedTools, model, permissionMode, mcpServers, hooks, maxTurns, skills, memory). ⚠️ CLI reference table перечисляет 8 полей, но sub-agents page явно указывает все 11. Поля `background`, `isolation`, `color` — **только в file-based формате**. Вместо markdown body используется поле `prompt`.
+> **CLI `--agents` JSON:** Поддерживает **11 полей** (description, prompt, tools, disallowedTools, model, permissionMode, mcpServers, hooks, maxTurns, skills, memory). ⚠️ CLI reference table перечисляет 8 полей, но sub-agents page явно указывает все 11. Поля `background`, `isolation`, `color` — **только в file-based формате** (вывод по отсутствию в CLI docs). Вместо markdown body используется поле `prompt` (Required: Yes в CLI reference).
 
 ---
 
@@ -124,7 +124,7 @@
 
 | Событие | Поля решения | Значения |
 |---|---|---|
-| `UserPromptSubmit` | `decision` | `"block"` / undefined. Доп. поля: `reason`, `additionalContext` (через `hookSpecificOutput`) |
+| `UserPromptSubmit` | `decision` | `"block"` / undefined. Доп. поля: `reason` (top-level), `additionalContext` (через `hookSpecificOutput`) |
 | `PreToolUse` | `hookSpecificOutput.permissionDecision` | `"allow"` / `"deny"` / `"ask"`. Доп. поля: `permissionDecisionReason` (для allow/ask — юзеру; для deny — Claude), `updatedInput` (модификация tool input), `additionalContext`. ⚠️ Deprecated: top-level `decision`/`reason` (`approve`→`allow`, `block`→`deny`) |
 | `PermissionRequest` | `hookSpecificOutput.decision.behavior` | `"allow"` / `"deny"`. Доп. поля: `updatedInput`, `updatedPermissions`, `message`, `interrupt` |
 | `PostToolUse` | `decision` | `"block"` (feedback) / undefined. Доп. поля: `reason` (объяснение для Claude при block), `additionalContext` (через `hookSpecificOutput`), `updatedMCPToolOutput` |
@@ -225,6 +225,8 @@ Hooks настраиваются через `.claude/settings.json` (project-lev
 > **`disableAllHooks`** — поле в settings для временного отключения всех hooks **и кастомного status line**. ⚠️ Учитывает иерархию managed settings: если hooks заданы через managed policy, `disableAllHooks` на уровне user/project/local **не может** их отключить.
 >
 > **`allowManagedHooksOnly`** — enterprise-настройка: блокирует user, project и plugin hooks, оставляя только managed и SDK hooks.
+>
+> **`allowManagedPermissionRulesOnly`** — enterprise-настройка (managed only): запрещает user/project settings определять allow/ask/deny rules для permissions.
 
 ### Переменные окружения в hooks
 
@@ -235,8 +237,11 @@ Hooks настраиваются через `.claude/settings.json` (project-lev
 - `$CLAUDE_CODE_REMOTE` — `"true"` в remote web environments, не установлена в локальном CLI
 
 **Дополнительные важные env vars (из settings reference):**
+- `ANTHROPIC_MODEL` — переопределяет модель по умолчанию
+- `CLAUDE_CODE_MAX_OUTPUT_TOKENS` — максимум output-токенов (default 32000, max 64000)
 - `CLAUDE_CODE_SUBAGENT_MODEL` — переопределяет модель для всех субагентов
 - `CLAUDE_CODE_EFFORT_LEVEL` — уровень усилий модели (low/medium/high)
+- `CLAUDE_CODE_SIMPLE` — минимальный режим UI
 - `MAX_THINKING_TOKENS` — максимум токенов на thinking
 - `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` — отключает фоновые задачи
 - `ENABLE_TOOL_SEARCH` — включает поиск по отложенным инструментам
@@ -284,7 +289,7 @@ Skills = on-demand промт-расширение. Claude загружает `n
 - `${CLAUDE_SESSION_ID}` — ID текущей сессии
 - `` !`command` `` — динамическая инъекция: shell-команда выполняется перед отправкой контента Claude, stdout включается в промт
 
-**Приоритет skills:** enterprise > personal > project. При конфликте имени skill > command. Skills из `--add-dir` директорий авто-загружаются с live change detection.
+**Приоритет skills:** enterprise > personal > project. При конфликте имени skill > command. Plugin skills используют namespace `plugin-name:skill-name` и не могут конфликтовать с non-plugin skills. Skills из `--add-dir` директорий авто-загружаются с live change detection.
 
 **Слияние commands и skills:**
 - `.claude/commands/research.md` и `.claude/skills/research/SKILL.md` — оба создают `/research`
@@ -344,7 +349,7 @@ claude plugin install <plugin-name> [--scope user|project|local]  # default scop
 claude plugin uninstall <plugin-name>   # aliases: remove, rm
 claude plugin enable <plugin-name>
 claude plugin disable <plugin-name>
-claude plugin update <plugin-name>
+claude plugin update <plugin-name> [--scope user|project|local|managed]  # managed scope уникален для update
 /plugin                                 # TUI → интерактивное управление
 ```
 
@@ -384,9 +389,9 @@ claude plugin update <plugin-name>
 ```
 или `export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
 
-**Delegate Mode** (community-термин, НЕ в official docs): Ограничивает Lead координацией, запрещая прямое написание кода. `Shift+Tab` переключает permission modes в TUI (не специфично для Agent Teams). Official docs рекомендуют промт: "Wait for your teammates to complete their tasks before proceeding." Навигация между teammates: `Shift+Down`.
+**Delegate Mode** (community-термин, НЕ в official docs): промптинг-паттерн, при котором Lead ограничивается координацией. Это **не формальный режим** — просто инструкция в промте. `Shift+Tab` переключает permission modes в TUI (не специфично для Agent Teams). Official docs рекомендуют промт: "Wait for your teammates to complete their tasks before proceeding." Навигация между teammates: `Shift+Down`.
 
-**Keyboard shortcuts:** `Shift+Down` — навигация между teammates (wraps back to lead), `Ctrl+T` — toggle task list (in-process mode), `Enter` — view teammate's session.
+**Keyboard shortcuts:** `Shift+Down` — навигация между teammates (wraps back to lead), `Ctrl+T` — toggle task list (in-process mode), `Enter` — view teammate's session, `Escape` — прервать текущий turn teammate'а (in-process mode).
 
 **Display modes:** Настройка `teammateMode` в settings или `--teammate-mode` CLI flag:
 - `"in-process"` — в одном окне (любой терминал)

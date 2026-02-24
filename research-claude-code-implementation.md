@@ -4,7 +4,7 @@
 > - Справочник по примитивам — `research-cc-primitives-reference.md`
 > - Известные баги и ограничения — `research-cc-known-issues.md`
 
-> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026 (8 раундов: exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации). Исправления применены по результатам восьми ревью.
+> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026 (9 раундов: exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации). Исправления применены по результатам девяти ревью.
 
 ---
 
@@ -139,7 +139,7 @@ When given a task for Research phase:
 - Используй `model: haiku` — Research субагенты не пишут код, только читают файлы
 - Это снижает стоимость фазы в несколько раз
 
-> ⚠️ **Ограничение параллелизма:** запуск большого числа параллельных субагентов может вызвать JavaScript heap OOM (4GB) и crash CLI (Issue #19100). Рекомендуется ограничивать до 2-3 параллельных субагентов. `model: haiku` снижает memory footprint.
+> ⚠️ **Ограничение параллелизма:** запуск большого числа параллельных субагентов может вызвать JavaScript heap OOM (Issue #19100), context overflow (Issue #23463) или compaction cascade (Issue #27794). Рекомендуется ограничивать до 2-3 параллельных субагентов. `model: haiku` снижает memory footprint. Использовать файловые артефакты для больших результатов.
 
 ### Git Worktrees для изоляции
 
@@ -981,7 +981,7 @@ jobs:
 ### Продвинутые возможности (после MVP)
 
 - **Plugin** — упаковать всё в plugin для переиспользования между проектами
-- **Agent Teams** — когда стабилизируется. Lead ограничивается координацией через промт "Wait for your teammates to complete their tasks before proceeding" (Delegate Mode — community-термин, не official feature)
+- **Agent Teams** — когда стабилизируется. Lead ограничивается координацией через промт "Wait for your teammates to complete their tasks before proceeding" (Delegate Mode — community-термин, промптинг-паттерн, не формальный режим)
 - **`claude --remote` / `--teleport`** — для внешней orchestration
 - **`PreCompact` hook** — backup transcript перед компакцией контекста
 - **CI-интеграция через `claude -p`** — программный запуск агентов в CI pipeline
