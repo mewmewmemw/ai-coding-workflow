@@ -17,7 +17,7 @@
 | **CLAUDE.md** | Всегда загружается в начало каждой сессии. Глобальный контекст проекта. | `./CLAUDE.md`, `~/.claude/CLAUDE.md` |
 | **Subagent** | Изолированный Claude-инстанс со своим контекстным окном, своими инструментами и системным промтом. Запускается внутри сессии. | `.claude/agents/*.md` или `~/.claude/agents/*.md` |
 | **Agent Teams** | Несколько независимых Claude Code сессий, работающих параллельно. Могут общаться между собой. Экспериментальная фича. | Через `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` |
-| **Skill** | Инструкции + исполняемые команды, загружаемые по необходимости. Вызываются через `/skill-name`. | `.claude/skills/*.md` |
+| **Skill** | Инструкции + исполняемые команды, загружаемые по необходимости. Вызываются через `/skill-name`. | `.claude/skills/{name}/SKILL.md` (или упрощённо: `.claude/commands/{name}.md`) |
 | **Hook** | Shell-команда, выполняемая детерминированно в конкретный момент жизненного цикла агента. | `.claude/settings.json` или `~/.claude/settings.json` |
 | **Git Worktree** | Изолированная копия репозитория на отдельной ветке. Позволяет субагентам работать параллельно без конфликтов. | `claude --worktree` или `isolation: worktree` в subagent |
 
@@ -380,7 +380,75 @@ Output:
 
 Hooks обеспечивают детерминированный контроль — агент не может их обойти.
 
-#### settings.json — основные hooks
+> **Важно: два разных механизма блокировки в зависимости от режима работы:**
+> - **Subagents** → `SubagentStop` hook, возвращает JSON `{"decision": "block", "reason": "..."}` в stdout
+> - **Agent Teams** → `TeammateIdle` hook, exit code `2` в stderr блокирует teammate
+
+#### settings.json — hooks для режима Subagents (основной вариант)
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/lint-on-edit.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/quality-gate-subagent.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### .claude/hooks/quality-gate-subagent.sh
+
+```bash
+#!/bin/bash
+# Запускается когда субагент завершает работу.
+# Возвращает JSON {"decision": "block", "reason": "..."} → субагент не останавливается.
+# Возвращает JSON {"decision": "allow"} или пустой stdout → субагент завершается.
+
+ERRORS=""
+
+# 1. Build check
+if ! npm run build > /tmp/build-output.txt 2>&1; then
+  ERRORS="BUILD FAILED:\n$(cat /tmp/build-output.txt | tail -20)"
+fi
+
+# 2. Tests check
+if [ -z "$ERRORS" ] && ! npm test > /tmp/test-output.txt 2>&1; then
+  ERRORS="TESTS FAILED:\n$(cat /tmp/test-output.txt | tail -30)"
+fi
+
+# 3. Lint check
+if [ -z "$ERRORS" ] && ! npm run lint > /tmp/lint-output.txt 2>&1; then
+  ERRORS="LINT FAILED:\n$(cat /tmp/lint-output.txt | tail -20)"
+fi
+
+if [ -n "$ERRORS" ]; then
+  echo "{\"decision\": \"block\", \"reason\": \"Quality gate failed. Fix before stopping: $ERRORS\"}"
+  exit 0
+fi
+
+echo "{\"decision\": \"allow\"}"
+exit 0
+```
+
+#### settings.json — hooks для режима Agent Teams
 
 ```json
 {
@@ -401,7 +469,7 @@ Hooks обеспечивают детерминированный контрол
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/quality-gate.sh"
+            "command": ".claude/hooks/quality-gate-teammate.sh"
           }
         ]
       }
@@ -410,39 +478,36 @@ Hooks обеспечивают детерминированный контрол
 }
 ```
 
-#### .claude/hooks/quality-gate.sh
+#### .claude/hooks/quality-gate-teammate.sh
 
 ```bash
 #!/bin/bash
-# Запускается перед тем, как субагент уходит в idle.
-# Exit code 2 → субагент получает ошибку и продолжает работу.
-
-set -e
-
-echo "=== Quality Gate ==="
+# Запускается перед тем, как teammate уходит в idle (ТОЛЬКО Agent Teams).
+# Exit code 2 + stderr → teammate получает ошибку и продолжает работу.
+# Exit code 0 → teammate уходит в idle.
 
 # 1. Build check
-echo "--- Build ---"
-if ! npm run build 2>&1; then
-  echo "BUILD FAILED: Fix build errors before stopping." >&2
+if ! npm run build > /tmp/build-output.txt 2>&1; then
+  echo "BUILD FAILED. Fix before stopping:" >&2
+  cat /tmp/build-output.txt | tail -20 >&2
   exit 2
 fi
 
 # 2. Tests check
-echo "--- Tests ---"
-if ! npm test 2>&1; then
-  echo "TESTS FAILED: Fix failing tests before stopping." >&2
+if ! npm test > /tmp/test-output.txt 2>&1; then
+  echo "TESTS FAILED. Fix before stopping:" >&2
+  cat /tmp/test-output.txt | tail -30 >&2
   exit 2
 fi
 
 # 3. Lint check
-echo "--- Lint ---"
-if ! npm run lint 2>&1; then
-  echo "LINT FAILED: Fix lint errors before stopping." >&2
+if ! npm run lint > /tmp/lint-output.txt 2>&1; then
+  echo "LINT FAILED. Fix before stopping:" >&2
+  cat /tmp/lint-output.txt | tail -20 >&2
   exit 2
 fi
 
-echo "All gates passed ✓"
+echo "All quality gates passed ✓"
 exit 0
 ```
 
@@ -477,7 +542,17 @@ exit 0
 
 ### Agent Teams для сложных задач
 
-Включение экспериментальной фичи:
+Включение экспериментальной фичи — через `settings.json` (рекомендуется, сохраняется между сессиями):
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
+```
+
+Или через переменную окружения (только для текущей сессии):
 
 ```bash
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
@@ -537,11 +612,17 @@ project-root/
 │   │   ├── arch-reviewer.md
 │   │   ├── security-reviewer.md
 │   │   └── plan-compliance.md
-│   ├── skills/
+│   ├── commands/                     # Простые slash-команды (плоские .md файлы)
 │   │   ├── research.md               # /research → запускает Research фазу
 │   │   ├── design.md                 # /design → запускает Design фазу
 │   │   ├── plan.md                   # /plan → запускает Planning фазу
 │   │   └── implement.md              # /implement → запускает Implementation фазу
+│   │
+│   │   # Альтернатива: Skills с поддерживающими файлами (директория + SKILL.md)
+│   ├── skills/
+│   │   └── research/
+│   │       ├── SKILL.md              # /research (главный файл)
+│   │       └── examples/             # Примеры research-документов для Claude
 │   ├── hooks/
 │   │   ├── quality-gate.sh
 │   │   └── lint-on-edit.sh
@@ -550,11 +631,16 @@ project-root/
 
 ---
 
-## Skills: slash-команды для каждой фазы
+## Slash-команды для каждой фазы
 
-Skills — это промты, вызываемые через `/skill-name`. Они инкапсулируют логику запуска каждой фазы.
+Есть два эквивалентных формата:
 
-### .claude/skills/research.md
+- **Простой** (slash command): `.claude/commands/research.md` — плоский markdown-файл с YAML frontmatter
+- **Расширенный** (Skill): `.claude/skills/research/SKILL.md` + поддерживающие файлы (примеры, шаблоны, скрипты)
+
+Оба создают `/research`. Используй Skills когда нужны примеры или шаблоны рядом с инструкцией. В остальных случаях — простые commands.
+
+### .claude/commands/research.md
 
 ```markdown
 ---
@@ -583,7 +669,7 @@ The research document must contain ONLY facts with file:line references.
 Zero opinions. Zero suggestions.
 ```
 
-### .claude/skills/implement.md
+### .claude/commands/implement.md
 
 ```markdown
 ---
@@ -656,24 +742,25 @@ All AI agents must follow the 4-phase process:
 
 | Фаза методологии | Инструмент Claude Code | Ключевые настройки |
 |---|---|---|
-| **Research: Lead декомпозирует задачу** | Skill `/research` | Skill в `.claude/skills/research.md` |
+| **Research: Lead декомпозирует задачу** | Slash command `/research` | `.claude/commands/research.md` |
 | **Research: параллельные субагенты** | Custom Subagents | `.claude/agents/researcher-*.md`, `model: haiku`, `isolation: worktree` |
 | **Research: выход — файл фактов** | Файловые артефакты | `docs/research/{task}.md` |
-| **Design: читает стандарты команды** | Skill + prompts/ folder | `.claude/agents/designer.md` читает все `prompts/*.md` |
+| **Design: читает стандарты команды** | Subagent + prompts/ folder | `.claude/agents/designer.md` читает все `prompts/*.md` |
 | **Design: генерирует C4, ADR, контракты** | Custom Subagent | `docs/design/{task}.md` |
 | **Design: человеческий гейт** | Ручная правка документа | Инженер правит `docs/design/{task}.md` напрямую |
 | **Planning: разбивка по фазам** | Custom Subagent | `.claude/agents/planner.md` → `docs/plan/{task}/phase-N.md` |
 | **Planning: человеческий гейт** | Ручная правка | Инженер правит план напрямую |
-| **Implementation: Lead координирует** | Skill `/implement` | Никогда не пишет код сам |
+| **Implementation: Lead координирует** | Slash command `/implement` | Никогда не пишет код сам |
 | **Implementation: Backend** | Custom Subagent | `.claude/agents/backend-developer.md` |
 | **Implementation: Tester** | Custom Subagent | `.claude/agents/tester.md` |
 | **Implementation: Arch Reviewer** | Custom Subagent | `.claude/agents/arch-reviewer.md` |
 | **Implementation: Security Reviewer** | Custom Subagent | `.claude/agents/security-reviewer.md` |
 | **Implementation: Plan Compliance** | Custom Subagent | `.claude/agents/plan-compliance.md`, `model: haiku` |
-| **Quality Gates: build/tests/lint** | Hooks | `TeammateIdle` hook → quality-gate.sh (exit 2 блокирует) |
-| **Quality Gates: автоформатирование** | Hooks | `PostToolUse Edit\|Write` → lint-on-edit.sh |
-| **Параллельные сессии без конфликтов** | Git Worktrees | `claude --worktree` или `isolation: worktree` |
-| **Сложная координация между агентами** | Agent Teams | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` |
+| **Quality Gates (Subagents)** | `SubagentStop` hook | JSON `{"decision": "block"}` блокирует субагент |
+| **Quality Gates (Agent Teams)** | `TeammateIdle` hook | exit 2 блокирует teammate |
+| **Quality Gates: автоформатирование** | `PostToolUse` hook | matcher `Edit\|Write` → lint-on-edit.sh |
+| **Параллельные сессии без конфликтов** | Git Worktrees | `claude --worktree` или `isolation: worktree` в subagent |
+| **Сложная координация между агентами** | Agent Teams (experimental) | `settings.json` → `{"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}` |
 
 ---
 
@@ -684,12 +771,23 @@ All AI agents must follow the 4-phase process:
 - **Subagents** — работают внутри одной сессии. Lead запускает их через Task tool. Они не общаются между собой — только репортят обратно Lead-агенту. Достаточно для большинства задач.
 - **Agent Teams** — отдельные Claude Code процессы, могут общаться напрямую (через inbox-файлы или мессенджинг). Нужны только когда требуется настоящая параллельная работа с коммуникацией между агентами (например, тестировщик должен передать детали ошибки напрямую разработчику).
 
-### TeammateIdle Hook — ключевой механизм quality gates
+### Quality gate hooks: два разных механизма
 
-```bash
-# Exit code 2 → агент получает ошибку в stderr и продолжает работу
-# Exit code 0 → агент уходит в idle (финализирует работу)
+**Для Subagents** — `SubagentStop` hook:
+```json
+// stdout
+{"decision": "block", "reason": "BUILD FAILED: fix errors before stopping"}
+// или
+{"decision": "allow"}
 ```
+
+**Для Agent Teams** — `TeammateIdle` hook:
+```bash
+# exit 2 + stderr → teammate получает сообщение и продолжает работу
+# exit 0 → teammate уходит в idle
+```
+
+`TeammateIdle` работает **только** в контексте Agent Teams. Применять его к обычным субагентам бессмысленно — он просто не будет срабатывать.
 
 Это детерминированный механизм: агент не может завершить фазу, пока не пройдут все quality gates. Не зависит от LLM.
 
