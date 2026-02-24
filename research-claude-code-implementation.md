@@ -1020,6 +1020,76 @@ hooks:
 
 ---
 
+---
+
+## Известные баги и ограничения (критическое ревью, 24 февраля 2026)
+
+> Раздел верифицирован по открытым issues в anthropics/claude-code. Актуально на дату документа.
+
+### 🔴 Активные баги
+
+#### [Issue #17927] Worktree path resolution bug
+**Статус:** открыт (январь 2026), пометка stale
+
+При запуске агента из git worktree относительные пути разрешаются в **main repo**, а не в worktree. Пример:
+```bash
+git worktree add /path/to/worktree -b my-branch
+cd /path/to/worktree && claude "Edit parsers.py"
+# → редактирует /main-repo/parsers.py вместо /worktree/parsers.py
+```
+
+**Влияние на методологию:** `isolation: worktree` у Research-субагентов может писать файлы артефактов в неправильное место.
+
+**Обходной путь:** при использовании worktree всегда указывать абсолютные пути. В промтах субагентов заменить относительные пути на `$(pwd)/...`.
+
+---
+
+#### [Issue #27562] `--tmux --worktree` — Claude не стартует
+**Статус:** открыт (22 февраля 2026, только что)
+
+Комбинация `claude --tmux --worktree` создаёт worktree, но tmux-сессия немедленно завершается без запуска Claude.
+
+**Влияние:** tmux-based swarm coordination pattern (через `tmux send-keys`) нельзя комбинировать с `--worktree` через CLI-флаг.
+
+**Обходной путь:** использовать `isolation: worktree` в frontmatter субагента (это внутренний механизм CC, не CLI-флаг) — работает отдельно от `--tmux`.
+
+---
+
+### 🟡 Ограничения экспериментальных фич
+
+#### Agent Teams: known limitations (официальная документация)
+Официально задокументированы ограничения:
+- **Session resumption** — возобновление сессии Agent Team ненадёжно
+- **Task coordination** — возможны race conditions при координации задач
+- **Shutdown behavior** — неконтролируемое завершение teammates
+
+**Вывод:** Agent Teams не готовы для production-использования с жёсткими quality gates. Для надёжной реализации методологии предпочесть **Subagents + `SubagentStop` hook** вместо Agent Teams + `TeammateIdle`.
+
+---
+
+#### `isolation: worktree` в frontmatter — новая фича (v2.1.50, 20 февраля 2026)
+Добавлена 4 дня назад. Вероятны неотловленные edge cases. Использовать осторожно в первых реализациях.
+
+---
+
+### 🟢 Новое в v2.1.51 (последний релиз на момент ревью)
+
+- **`claude remote-control`** — новый subcommand для внешнего управления сессиями Claude Code. Потенциально полезен для orchestration в swarm-паттернах как альтернатива tmux.
+- **`claude agents`** — CLI-команда для просмотра всех настроенных агентов (добавлено в v2.1.50). Полезно для отладки.
+
+---
+
+### Рекомендации по реализации с учётом рисков
+
+| Фаза | Риск | Рекомендация |
+|---|---|---|
+| Research (isolation: worktree) | Path resolution bug | Использовать абсолютные пути в промтах субагентов |
+| Implementation (Agent Teams) | Experimental, known limitations | Использовать Subagents + SubagentStop вместо Agent Teams для начала |
+| Coordination (tmux + --worktree) | --tmux --worktree bug | Не комбинировать --tmux и --worktree через CLI |
+| Quality gates | — | SubagentStop надёжнее TeammateIdle для текущего состояния |
+
+---
+
 ## Следующие шаги
 
 1. Создать структуру `.claude/agents/` с файлами субагентов
@@ -1028,3 +1098,5 @@ hooks:
 4. Настроить hooks в `.claude/settings.json`
 5. Создать `docs/` структуру для артефактов фаз
 6. Протестировать на реальном тикете
+7. **Начать с Subagents-only** (без Agent Teams) — надёжнее для начального внедрения
+8. **Мониторить Issue #17927** (worktree path bug) перед активным использованием `isolation: worktree`
