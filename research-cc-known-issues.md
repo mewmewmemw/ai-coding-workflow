@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит все известные баги, workarounds и рекомендации по реализации.
 > Справочник по примитивам — см. `research-cc-primitives-reference.md`.
 
-> Верифицировано по открытым issues в anthropics/claude-code. Актуально на 24 февраля 2026.
+> Верифицировано по открытым issues в anthropics/claude-code (4 раунда ревью). Актуально на 24 февраля 2026. Все 20 issues проверены — open, описания совпадают.
 
 ---
 
@@ -94,7 +94,7 @@ cd /path/to/worktree && claude "Edit parsers.py"
 ### [Issue #27562] `--tmux --worktree` — Claude не стартует
 **Статус:** открыт (22 февраля 2026)
 
-Комбинация `claude --tmux --worktree` создаёт worktree, но tmux-сессия немедленно завершается без запуска Claude.
+Комбинация `claude --tmux --worktree` создаёт worktree, но tmux-сессия немедленно завершается без запуска Claude. ⚠️ Дополнительно: `--tmux` теперь **требует** `--worktree` — без него выдаёт ошибку "Error: --tmux requires --worktree".
 
 **Влияние:** tmux-based swarm coordination pattern (через `tmux send-keys`) нельзя комбинировать с `--worktree` через CLI-флаг.
 
@@ -120,7 +120,7 @@ cd /path/to/worktree && claude "Edit parsers.py"
 
 **Влияние на методологию:** при `isolation: worktree` для параллельных Research-субагентов, их task lists будут конфликтовать.
 
-**Обходной путь:** не полагаться на встроенные task lists для координации между worktree-субагентами. Использовать файловые артефакты вместо task system.
+**Обходной путь:** не полагаться на встроенные task lists для координации между worktree-субагентами. Использовать файловые артефакты вместо task system. Альтернатива: `CLAUDE_CODE_TASK_LIST_ID=my-feature claude` для изоляции task list per worktree.
 
 ---
 
@@ -160,6 +160,68 @@ cd /path/to/worktree && claude "Edit parsers.py"
 
 ---
 
+### [Issue #24421] Background subagent completion некорректно триггерит родительский Stop hook
+**Статус:** открыт
+
+При завершении background-субагентов некорректно срабатывает **родительский Stop hook** (вместо SubagentStop). В сочетании с #25147 (SubagentStop обходится для background) создаёт двойную проблему: SubagentStop НЕ срабатывает, но Stop родителя срабатывает ложно.
+
+**Влияние на методологию:** Stop hook основного агента может сработать преждевременно при завершении любого background-субагента.
+
+**Обходной путь:** не использовать `background: true` для агентов с quality gates. Проверять в Stop hook, не является ли trigger ложным.
+
+---
+
+### [Issue #17591] TaskOutput возвращает raw JSONL вместо summary (regression since 2.0.77)
+**Статус:** открыт, stale (10 thumbs-up)
+
+`TaskOutput` для background-субагентов возвращает полный JSONL транскрипт вместо чистого summary. Раздувает контекстное окно родительского агента.
+
+**Влияние на методологию:** Research-фаза с background-субагентами — результаты субагентов загрязняют контекст Lead-агента.
+
+**Обходной путь:** использовать файловые артефакты (субагент пишет результат в файл) вместо прямого `TaskOutput`.
+
+---
+
+### [Issue #27778] `--worktree` flag silently broken в v2.1.50
+**Статус:** открыт
+
+Флаг `--worktree` молча ничего не делает в v2.1.50. Worktree не создаётся. Возможный регресс после фикса #27044.
+
+**Влияние на методологию:** `isolation: worktree` в frontmatter может быть единственным работающим механизмом. CLI `--worktree` ненадёжен.
+
+**Обходной путь:** использовать `isolation: worktree` в frontmatter субагента вместо CLI-флага.
+
+---
+
+### [Issue #27974] EnterWorktree создаёт nested worktrees из существующего worktree
+**Статус:** открыт
+
+`EnterWorktree` использует `git rev-parse --show-toplevel` (возвращает root worktree) вместо `git rev-parse --git-common-dir`. При вызове из worktree создаёт вложенные worktrees.
+
+**Влияние:** проблема при nested субагентах с `isolation: worktree`.
+
+---
+
+### [Issue #27134] EnterWorktree branches от default branch, не HEAD
+**Статус:** открыт
+
+EnterWorktree создаёт worktree от `origin/<defaultBranch>` вместо HEAD. Если вы на feature branch, worktree получает main.
+
+**Влияние на методологию:** Research-субагенты с `isolation: worktree` могут исследовать **не ту ветку** — main вместо текущей feature branch.
+
+**Обходной путь:** убедиться, что Research запускается из main или явно указать ветку.
+
+---
+
+### [Issue #27985] Skills загружаются из repo root, не из worktree directory
+**Статус:** открыт
+
+Skills в `.claude/skills/` загружаются из main working tree, не из worktree branch. Изменения skills на feature branch не отражаются в worktree.
+
+**Влияние:** при модификации skills на feature branches worktrees используют старые skills.
+
+---
+
 ## 🟡 Ограничения экспериментальных фич
 
 ### Agent Teams: known limitations (официальная документация)
@@ -167,11 +229,11 @@ cd /path/to/worktree && claude "Edit parsers.py"
 - **Session resumption** — `/resume` и `/rewind` не восстанавливают in-process teammates
 - **Task status lag** — teammates иногда не отмечают задачи как завершённые, блокируя зависимые задачи (task claiming использует file locking)
 - **Shutdown behavior** — медленное завершение teammates (ждут окончания текущего запроса/tool-вызова)
-- **Lead does work itself** — без Delegate Mode lead часто сам пишет код вместо делегирования
+- **Lead does work itself** — без явной инструкции lead часто сам пишет код вместо делегирования. Рекомендуется промт: "Wait for your teammates to complete their tasks before proceeding"
 - **One team per session** — нельзя создать несколько teams в одной сессии
 - **No nested teams** — teammates не могут спаунить свои teams
 - **Lead is fixed** — нельзя передать лидерство другому агенту
-- **Permissions set at spawn** — нельзя изменить разрешения teammate после старта
+- **Permissions set at spawn** — все teammates стартуют с permission mode лида. Можно изменить после старта, но нельзя задать индивидуально при спауне
 - **Split panes** — требуется tmux или iTerm2 для отображения
 - **SendMessage silent loss** — сообщения молча теряются при несовпадении имени получателя (Issue #25135)
 
@@ -195,15 +257,21 @@ cd /path/to/worktree && claude "Edit parsers.py"
 | Фаза | Риск | Рекомендация |
 | --- | --- | --- |
 | Research (isolation: worktree) | Path resolution bug (#17927) | Использовать абсолютные пути в промтах субагентов |
-| Research (isolation: worktree) | Task list leak (#24754) | Не полагаться на встроенные task lists; использовать файловые артефакты |
+| Research (isolation: worktree) | Task list leak (#24754) | Не полагаться на task lists; файловые артефакты или `CLAUDE_CODE_TASK_LIST_ID` |
+| Research (isolation: worktree) | EnterWorktree branches от main, не HEAD (#27134) | Убедиться, что Research запускается из нужной ветки |
+| Research (isolation: worktree) | Nested worktrees (#27974) | Не вызывать EnterWorktree из существующего worktree |
+| Research (isolation: worktree) | Skills из repo root, не worktree (#27985) | Учитывать при модификации skills на feature branches |
+| Research (isolation: worktree) | `--worktree` flag broken v2.1.50 (#27778) | Использовать `isolation: worktree` в frontmatter вместо CLI-флага |
 | Research (isolation: worktree) | Commands duplication (#27069) | Косметическая проблема, не критично |
-| Research (background: true) | Background agents bypass Stop hooks (#25147) | Не использовать `background: true` для агентов с quality gates |
+| Research (background: true) | Background agents bypass Stop hooks (#25147) + ложный родительский Stop (#24421) | Не использовать `background: true` для агентов с quality gates |
+| Research (background: true) | TaskOutput returns raw JSONL (#17591) | Использовать файловые артефакты вместо `TaskOutput` |
 | Implementation (Agent Teams) | Experimental, known limitations, silent message loss (#25135) | Использовать Subagents + SubagentStop вместо Agent Teams для начала |
-| Coordination (tmux + --worktree) | --tmux --worktree bug (#27562) | Не комбинировать --tmux и --worktree через CLI |
+| Coordination (tmux + --worktree) | --tmux --worktree bug (#27562); --tmux requires --worktree | Не комбинировать --tmux и --worktree через CLI |
 | Quality gates (SubagentStop) | prompt/agent hooks не блокируют (#20221) | Использовать **только** `type: "command"` для quality gates |
 | Quality gates (SubagentStop) | command hooks ~42% failure rate (#27755) | `type: command` необходим, но не гарантирован. **CI — обязательный fallback** |
 | Quality gates (prompt hooks) | Экспоненциальный рост payload (#17249) | **Не использовать `type: "prompt"` в production** |
 | Quality gates | — | SubagentStop надёжнее TeammateIdle для текущего состояния |
+| Quality gates (SDK) | SDK HookEvent type: 12/17 событий | TeammateIdle, TaskCompleted, ConfigChange недоступны в SDK |
 | Subagent tools/disallowedTools | Не блокирует MCP tools (#25589) | Не подключать ненужные mcpServers к субагентам |
 | Skills allowed-tools | Не enforce-ится (#14956) | Ограничивать инструменты через subagent `tools`, не через skills |
 | Subagent resume | Fails с 3+ tool uses (#20942) | Не полагаться на resume для долгих субагентов |

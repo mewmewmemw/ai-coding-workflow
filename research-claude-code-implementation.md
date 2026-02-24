@@ -4,7 +4,7 @@
 > - Справочник по примитивам — `research-cc-primitives-reference.md`
 > - Известные баги и ограничения — `research-cc-known-issues.md`
 
-> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026 (exa + context7 + GitHub issues, 5 параллельных агентов верификации). Исправления применены по результатам трёх ревью.
+> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026 (exa + context7 + GitHub issues, 5 параллельных агентов верификации). Исправления применены по результатам четырёх ревью.
 
 ---
 
@@ -917,6 +917,51 @@ All AI agents must follow the 4-phase process:
 
 ---
 
+## CI Pipeline: обязательный fallback для quality gates
+
+SubagentStop hooks ненадёжны (~42% failure rate, Issue #27755). CI pipeline — **единственный гарантированный** quality gate.
+
+### Пример GitHub Actions workflow
+
+```yaml
+# .github/workflows/quality-gates.yml
+name: Quality Gates
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+```
+
+> Этот pipeline дублирует все проверки из `quality-gate-subagent.sh`. Даже если SubagentStop hook не сработал в ~42% случаев — CI поймает проблему до merge.
+
+---
+
 ## Следующие шаги
 
 ### Минимальная жизнеспособная реализация (MVP)
@@ -926,15 +971,16 @@ All AI agents must follow the 4-phase process:
 3. **Настроить `CLAUDE.md`** — описание проекта + ссылки на стандарты
 4. **Создать `.claude/commands/`** — slash-команды для фаз (`/research`, `/design`, `/plan`, `/implement`)
 5. **Настроить hooks в `.claude/settings.json`** — PostToolUse (lint-on-edit) + SubagentStop (quality gate)
-6. **Создать `docs/` структуру** — research/, design/, plan/ для артефактов фаз
-7. **Протестировать на реальном тикете**
+6. **Настроить CI pipeline** — обязательный fallback для quality gates (см. ниже)
+7. **Создать `docs/` структуру** — research/, design/, plan/ для артефактов фаз
+8. **Протестировать на реальном тикете**
 
 > Принципы реализации с учётом известных багов — см. `research-cc-known-issues.md` → Принципы реализации.
 
 ### Продвинутые возможности (после MVP)
 
 - **Plugin** — упаковать всё в plugin для переиспользования между проектами
-- **Agent Teams + Delegate Mode (Shift+Tab)** — когда стабилизируется
+- **Agent Teams** — когда стабилизируется. Lead ограничивается координацией через промт "Wait for your teammates to complete their tasks before proceeding" (Delegate Mode — community-термин, не official feature)
 - **`claude --remote` / `--teleport`** — для внешней orchestration
 - **Agent SDK** — программная оркестрация для CI/CD интеграции
 - **`PreCompact` hook** — backup transcript перед компакцией контекста
