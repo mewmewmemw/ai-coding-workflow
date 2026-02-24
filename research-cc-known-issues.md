@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит все известные баги, workarounds и рекомендации по реализации.
 > Справочник по примитивам — см. `research-cc-primitives-reference.md`.
 
-> Верифицировано по открытым issues в anthropics/claude-code (10 раундов ревью). Актуально на 24 февраля 2026. Все 42 ранее документированных issues проверены — open, описания совпадают. Добавлено 4 новых issues (#22172, #25168, #28008, #28075), найденных в 10-м ревью. Итого: 46 issues.
+> Верифицировано по открытым issues в anthropics/claude-code (11 раундов ревью). Актуально на 24 февраля 2026. 11-й раунд ревью (24 февраля 2026): #18837 закрыт (дубликат #14956), #27044 закрыт (контекст для #27778 обновлён). Добавлено 5 новых issues (#17637, #28048, #27881, #27429, #27946). Итого: 50 issues.
 
 ---
 
@@ -185,7 +185,7 @@ cd /path/to/worktree && claude "Edit parsers.py"
 ### [Issue #27778] `--worktree` flag silently broken в v2.1.50
 **Статус:** открыт
 
-Флаг `--worktree` молча ничего не делает в v2.1.50. Worktree не создаётся. Возможный регресс после фикса #27044.
+Флаг `--worktree` молча ничего не делает в v2.1.50. Worktree не создаётся. Возможный регресс после фикса #27044 (закрыт 23 февраля 2026, но #27778 по-прежнему воспроизводится).
 
 **Влияние на методологию:** `isolation: worktree` в frontmatter может быть единственным работающим механизмом. CLI `--worktree` ненадёжен.
 
@@ -486,6 +486,61 @@ Idle-nudge система не различает "ожидание сообще
 
 ---
 
+### [Issue #17637] Hooks не получают tool input для Read/Glob; permission patterns не матчат tilde paths
+**Статус:** открыт (12 января 2026)
+
+PreToolUse hooks для Read/Glob tools не получают параметры tool input через переменные окружения. `CLAUDE_TOOL_INPUT_FILE_PATH` и аналогичные переменные отсутствуют — hooks получают только `CLAUDE_PROJECT_DIR` и `CLAUDE_CODE_ENTRYPOINT`. Дополнительно: permission patterns с `~` не матчат пути с tilde, генерируемые моделью.
+
+**Влияние на методологию:** невозможно валидировать пути файлов в PreToolUse hooks для Read/Glob. Переменные `$CLAUDE_TOOL_INPUT_*` не документированы и не гарантированы.
+
+**Обходной путь:** использовать JSON на stdin (`cat | jq`) для получения tool input. Для permissions — использовать абсолютные пути вместо tilde.
+
+---
+
+### [Issue #28048] Agent Teams tools недоступны в VS Code extension
+**Статус:** открыт (24 февраля 2026)
+
+Agent Teams tools (TeammateTool, SendMessage, spawnTeam) недоступны в VS Code extension даже при наличии `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` в settings.json. System prompt сообщает "not available on this plan" даже на Enterprise plan. Feature gated внутренними функциями, которые не активируются env var в VS Code.
+
+**Влияние на методологию:** Agent Teams workflow невозможен в VS Code extension. Только CLI.
+
+**Обходной путь:** использовать Claude Code CLI для Agent Teams workflow. В VS Code — использовать Subagents через Task tool.
+
+---
+
+### [Issue #27881] EnterWorktree создаёт nested worktrees при CWD drift после compaction
+**Статус:** открыт (23 февраля 2026)
+
+При context compaction или session continuation CWD может дрейфовать внутрь предыдущего worktree. Последующие вызовы EnterWorktree создают worktrees вложенные в существующие (3+ уровней вглубь). При достаточной вложенности создание worktree может молча упасть, и агент fallback-ится на текущую CWD — потенциально main/develop branch, обходя isolation.
+
+**Влияние на методологию:** **КРИТИЧНО** — worktree isolation может быть молча нарушена. Агенты могут коммитить напрямую в protected branches. Связан с #27974 (nested worktrees) и #28017 (CWD leak).
+
+**Обходной путь:** после compaction явно проверять и восстанавливать CWD. Использовать абсолютные пути. Ограничивать длительность сессий с worktree-субагентами.
+
+---
+
+### [Issue #27429] MAX_THINKING_TOKENS глобальный — crash субагентов с другой моделью
+**Статус:** открыт (21 февраля 2026)
+
+`MAX_THINKING_TOKENS` — единый глобальный env var для main agent и всех субагентов. Если main agent использует Opus (128k output cap) с `MAX_THINKING_TOKENS=95000`, Explore-субагенты на Sonnet (64k cap) молча крашатся: `0 tool uses · Done`, без ошибки.
+
+**Влияние на методологию:** Research-фаза с Explore-субагентами (model: haiku/sonnet) может молча ломаться при высоком MAX_THINKING_TOKENS.
+
+**Обходной путь:** установить MAX_THINKING_TOKENS ниже минимального output cap используемых моделей (например, ≤30000 для совместимости с Haiku). Или не использовать MAX_THINKING_TOKENS при mixed-model workflows.
+
+---
+
+### [Issue #27946] Memory leak: Claude Code процесс потребляет ~58GB RAM → OOM kill
+**Статус:** открыт (23 февраля 2026)
+
+Claude Code процесс (особенно в VS Code extension) постепенно потребляет память до исчерпания (58-60GB), вызывая OOM killer. VS Code крашится с каскадным падением всех extension hosts. 3 OOM kill за 2 часа.
+
+**Влияние на методологию:** длительные сессии могут привести к OOM crash. Связан с #19100 (heap OOM при параллельных субагентах), но другой root cause — постепенная утечка памяти основного процесса.
+
+**Обходной путь:** периодически перезапускать Claude Code сессию. Мониторить потребление памяти. Использовать CLI вместо VS Code extension для длительных сессий.
+
+---
+
 ## 🟡 Ограничения экспериментальных фич
 
 ### Agent Teams: known limitations (официальная документация)
@@ -534,8 +589,11 @@ Idle-nudge система не различает "ожидание сообще
 | Research (isolation: worktree) | Skills из repo root, не worktree (#27985) | Учитывать при модификации skills на feature branches |
 | Research (isolation: worktree) | `--worktree` flag broken v2.1.50 (#27778) | Использовать `isolation: worktree` в frontmatter вместо CLI-флага |
 | Research (isolation: worktree) | Commands duplication (#27069) | Косметическая проблема, не критично |
+| Research (isolation: worktree) | Nested worktrees при CWD drift (#27881) | После compaction проверять CWD; ограничивать длительность сессий |
 | Параллельные сессии | MCP calls к неправильному серверу (#28093) | Изолировать MCP-серверы между параллельными сессиями |
 | Параллельные сессии | /rewind уничтожает changes другой сессии (#28078) | Использовать `isolation: worktree`; не применять /rewind при параллельных сессиях |
+| Mixed-model workflows | MAX_THINKING_TOKENS crash субагентов (#27429) | Установить ≤30000 или не использовать при mixed models |
+| Длительные сессии | Memory leak 58GB+ (#27946) | Периодический перезапуск; мониторинг памяти; CLI вместо VS Code |
 | Design/Plan (write артефакты) | Субагенты молча не пишут файлы (#13890) | Проверять наличие output-файлов после завершения субагента |
 | Research (background: true) | Background agents bypass Stop hooks (#25147) + ложный родительский Stop (#24421) | Не использовать `background: true` для агентов с quality gates |
 | Research (background: true) | TaskOutput returns raw JSONL (#17591) | Использовать файловые артефакты вместо `TaskOutput` |
@@ -581,3 +639,5 @@ Idle-nudge система не различает "ожидание сообще
 - **Не комбинировать `--tmux` и `--worktree`** через CLI (#27562)
 - **Файловые артефакты вместо task lists** при работе с worktrees — task state leaks (#24754)
 - **Не делегировать skill invocation субагентам** без проверки наличия skill — crash всего CLI (#18057)
+- **Проверять CWD после compaction** при использовании worktree-субагентов — CWD drift может нарушить isolation (#27881)
+- **MAX_THINKING_TOKENS ≤30000** при mixed-model workflows — или не использовать, если субагенты на Sonnet/Haiku (#27429)

@@ -8,7 +8,7 @@
 |---|---|
 | `methodology.md` | Методология (4 фазы: Research -> Design -> Planning -> Implementation) |
 | `research-cc-primitives-reference.md` | Справочник примитивов Claude Code (frontmatter, hooks, skills, plugins, settings, CLI, agent teams) |
-| `research-cc-known-issues.md` | Известные баги (46 issues, все проверены open) |
+| `research-cc-known-issues.md` | Известные баги (50 issues, 48 open, 2 closed) |
 | `research-claude-code-implementation.md` | Маппинг методологии на примитивы Claude Code |
 | `prompts/critical-review.md` | Промт для независимого ревью |
 
