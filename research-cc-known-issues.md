@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит все известные баги, workarounds и рекомендации по реализации.
 > Справочник по примитивам — см. `research-cc-primitives-reference.md`.
 
-> Верифицировано по открытым issues в anthropics/claude-code (4 раунда ревью). Актуально на 24 февраля 2026. Все 20 issues проверены — open, описания совпадают.
+> Верифицировано по открытым issues в anthropics/claude-code (5 раундов ревью). Актуально на 24 февраля 2026. Все 23 issues проверены — open, описания совпадают.
 
 ---
 
@@ -172,7 +172,7 @@ cd /path/to/worktree && claude "Edit parsers.py"
 ---
 
 ### [Issue #17591] TaskOutput возвращает raw JSONL вместо summary (regression since 2.0.77)
-**Статус:** открыт, stale (10 thumbs-up)
+**Статус:** открыт (10 thumbs-up)
 
 `TaskOutput` для background-субагентов возвращает полный JSONL транскрипт вместо чистого summary. Раздувает контекстное окно родительского агента.
 
@@ -222,6 +222,39 @@ Skills в `.claude/skills/` загружаются из main working tree, не 
 
 ---
 
+### [Issue #27423] SubagentStop fires без соответствующего SubagentStart
+**Статус:** открыт (21 февраля 2026)
+
+Orphaned `SubagentStop` события срабатывают с пустым `agent_type` и без matching `SubagentStart`. Связан с #27755 — усиливает ненадёжность SubagentStart/SubagentStop lifecycle.
+
+**Влияние на методологию:** hooks, фильтрующие по `agent_type`, получают пустое значение. Quality gates на основе матчинга по типу агента могут не сработать.
+
+**Обходной путь:** те же, что для #27755 — CI как fallback, проверка `agent_type` на пустоту в скрипте.
+
+---
+
+### [Issue #24920] Stop hooks с `type: "prompt"` молча теряют поле `prompt`
+**Статус:** открыт (11 февраля 2026)
+
+Stop hooks с `type: "prompt"` повторно теряют поле `prompt` из settings.json — оно молча удаляется, оставляя только `type`, `timeout`, `statusMessage`. Data-loss баг в конфигурации hooks.
+
+**Влияние:** дополнительный аргумент против `type: "prompt"` — помимо экспоненциального роста (#17249), конфигурация может быть молча повреждена.
+
+**Обходной путь:** **не использовать `type: "prompt"` hooks** — это правило теперь подкреплено тремя отдельными багами (#17249, #20221, #24920).
+
+---
+
+### [Issue #23415] Agent Teams: Teammates не читают inbox (tmux backend, macOS)
+**Статус:** открыт (5 февраля 2026, 7 thumbs-up)
+
+Teammates, запущенные через tmux backend, никогда не читают свои inbox-файлы. Сообщения остаются `"read": false` бесконечно. Teammates ведут себя как standalone Claude Code сессии без team awareness.
+
+**Влияние на методологию:** фундаментальная проблема Agent Teams помимо name-mismatch (#25135). Даже с правильными именами сообщения могут не доставляться на tmux backend.
+
+**Обходной путь:** использовать `in-process` режим (`teammateMode: "in-process"`) или Subagents вместо Agent Teams.
+
+---
+
 ## 🟡 Ограничения экспериментальных фич
 
 ### Agent Teams: known limitations (официальная документация)
@@ -236,6 +269,8 @@ Skills в `.claude/skills/` загружаются из main working tree, не 
 - **Permissions set at spawn** — все teammates стартуют с permission mode лида. Можно изменить после старта, но нельзя задать индивидуально при спауне
 - **Split panes** — требуется tmux или iTerm2 для отображения
 - **SendMessage silent loss** — сообщения молча теряются при несовпадении имени получателя (Issue #25135)
+- **Inbox polling broken on tmux** — teammates на tmux backend не читают inbox вообще (Issue #23415)
+- **VS Code extension** — Agent Teams tools (TeammateTool, SendMessage, spawnTeam) недоступны в VS Code extension (Issue #28048)
 
 **Вывод:** Agent Teams не готовы для production-использования с жёсткими quality gates. Для надёжной реализации методологии предпочесть **Subagents + `SubagentStop` hook** вместо Agent Teams + `TeammateIdle`.
 
@@ -265,11 +300,11 @@ Skills в `.claude/skills/` загружаются из main working tree, не 
 | Research (isolation: worktree) | Commands duplication (#27069) | Косметическая проблема, не критично |
 | Research (background: true) | Background agents bypass Stop hooks (#25147) + ложный родительский Stop (#24421) | Не использовать `background: true` для агентов с quality gates |
 | Research (background: true) | TaskOutput returns raw JSONL (#17591) | Использовать файловые артефакты вместо `TaskOutput` |
-| Implementation (Agent Teams) | Experimental, known limitations, silent message loss (#25135) | Использовать Subagents + SubagentStop вместо Agent Teams для начала |
+| Implementation (Agent Teams) | Experimental, silent message loss (#25135), inbox polling broken on tmux (#23415) | Использовать Subagents + SubagentStop вместо Agent Teams для начала |
 | Coordination (tmux + --worktree) | --tmux --worktree bug (#27562); --tmux requires --worktree | Не комбинировать --tmux и --worktree через CLI |
 | Quality gates (SubagentStop) | prompt/agent hooks не блокируют (#20221) | Использовать **только** `type: "command"` для quality gates |
 | Quality gates (SubagentStop) | command hooks ~42% failure rate (#27755) | `type: command` необходим, но не гарантирован. **CI — обязательный fallback** |
-| Quality gates (prompt hooks) | Экспоненциальный рост payload (#17249) | **Не использовать `type: "prompt"` в production** |
+| Quality gates (prompt hooks) | Экспоненциальный рост payload (#17249), data-loss конфигурации (#24920), не блокируют (#20221) | **Не использовать `type: "prompt"` в production** (подкреплено тремя багами) |
 | Quality gates | — | SubagentStop надёжнее TeammateIdle для текущего состояния |
 | Quality gates (SDK) | SDK HookEvent type: 12/17 событий | TeammateIdle, TaskCompleted, ConfigChange недоступны в SDK |
 | Subagent tools/disallowedTools | Не блокирует MCP tools (#25589) | Не подключать ненужные mcpServers к субагентам |
