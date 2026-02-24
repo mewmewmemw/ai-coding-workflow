@@ -19,6 +19,9 @@ tools:
   - Read
   - Glob
   - Grep
+disallowedTools:
+  - Edit
+  - Write
 maxTurns: 30
 ---
 

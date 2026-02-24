@@ -28,4 +28,6 @@ description: |
 
 5. **Review:** `reviewer-facts` верифицирует новую секцию
 
-6. Обнови MEMORY.md
+6. **Validate:** Если новый примитив выявляет известные баги — добавь в known-issues "Принципы реализации" и CLAUDE.md "Guardrails"
+
+7. Обнови MEMORY.md

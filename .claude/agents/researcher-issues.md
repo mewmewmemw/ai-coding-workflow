@@ -19,6 +19,9 @@ tools:
   - Read
   - Grep
   - Bash
+disallowedTools:
+  - Edit
+  - Write
 maxTurns: 50
 ---
 

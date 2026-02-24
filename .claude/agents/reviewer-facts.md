@@ -22,6 +22,9 @@ tools:
   - WebFetch
   - WebSearch
   - mcp__exa__web_search_exa
+disallowedTools:
+  - Edit
+  - Write
 maxTurns: 30
 ---
 

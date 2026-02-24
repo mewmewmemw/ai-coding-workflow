@@ -31,7 +31,7 @@ Research → Design → Planning → Implementation
 methodology.md                          # Методология (русский)
 research-claude-code-implementation.md  # Маппинг методологии на примитивы Claude Code
 research-cc-primitives-reference.md     # Справочник примитивов (frontmatter, hooks, CLI, ...)
-research-cc-known-issues.md             # 50 верифицированных багов с workarounds
+research-cc-known-issues.md             # 55 верифицированных багов с workarounds
 
 .claude/
   agents/                              # Субагенты для самоподдержки документации
@@ -41,22 +41,23 @@ research-cc-known-issues.md             # 50 верифицированных б
     reviewer-facts.md                  #   независимая проверка фактов
     doc-writer.md                      #   применение исправлений
   commands/                            # Slash-команды
+    scaffold.md                        #   /scaffold — генерация .claude/ конфигурации
     audit.md                           #   /audit — полное ревью (4 параллельных агента)
     update.md                          #   /update — обновление после нового релиза CC
     add-primitive.md                   #   /add-primitive — добавление нового примитива
     check-issues.md                    #   /check-issues — проверка статуса issues
-  hooks/                               # Git hooks
+  hooks/                               # Automated consistency checks
   settings.json                        # Настройки проекта
 ```
 
 ## Research-документация
 
-Три research-файла — это не туториал и не гайд. Это верифицированный справочник по состоянию Claude Code на февраль 2026 (v2.1.50-51), прошедший 11 раундов независимого ревью:
+Три research-файла — это не туториал и не гайд. Это верифицированный справочник по состоянию Claude Code на февраль 2026 (v2.1.50-51), поддерживаемый через непрерывную автоматическую верификацию:
 
 | Файл | Содержание |
 | --- | --- |
 | [`research-cc-primitives-reference.md`](research-cc-primitives-reference.md) | Все примитивы: subagents (13 frontmatter fields), hooks (17 events), skills, plugins, settings, CLI (40+ flags), agent teams |
-| [`research-cc-known-issues.md`](research-cc-known-issues.md) | 50 issues (48 open) — каждый с описанием, влиянием на методологию и обходным путём. 3 security-critical |
+| [`research-cc-known-issues.md`](research-cc-known-issues.md) | 55 issues (53 open) — каждый с описанием, влиянием на методологию и обходным путём. 4 security-critical |
 | [`research-claude-code-implementation.md`](research-claude-code-implementation.md) | Как именно каждая фаза методологии реализуется через примитивы Claude Code |
 
 Каждое фактическое утверждение проверено по [official docs](https://code.claude.com), статусы issues — через GitHub API.
