@@ -26,7 +26,7 @@
 - [CLAUDE.md Complete Guide](https://www.claudedirectory.org/blog/claude-md-guide)
 - [Anthropic Guide: Building Skills](https://resources.anthropic.com/hubfs/The-Complete-Guide-to-Building-Skill-for-Claude.pdf)
 
-> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026 (exa + context7 + GitHub issues). Исправления применены по результатам ревью.
+> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026, второе ревью: 24 февраля 2026 (exa + context7 + GitHub issues, 5 параллельных агентов верификации). Исправления применены по результатам обоих ревью.
 
 ---
 
@@ -63,17 +63,16 @@
 
 ### Формат файла субагента (.claude/agents/researcher-architecture.md)
 
-Все поля frontmatter (полный список, верифицирован по официальной документации и `--agents` CLI):
+Все поля frontmatter (13 полей в официальной reference table + `color` работает на практике):
 
 | Поле | Обязательное | Значения | Описание |
 |---|---|---|---|
-| `name` | да | строка (lowercase + hyphens, 3-50 символов) | Идентификатор субагента |
+| `name` | да | строка (lowercase + numbers + hyphens, 3-50 символов, начало и конец — алфавитно-цифровой) | Идентификатор субагента |
 | `description` | да | строка + `<example>` блоки | По этому полю Claude решает, когда делегировать задачу |
 | `model` | нет | `haiku`, `sonnet`, `opus`, `inherit` | `inherit` — наследует от родителя (default) |
-| `tools` | нет | массив или строка | Ограничивает доступные инструменты (whitelist) |
-| `disallowedTools` | нет | массив или строка | Запрещает конкретные инструменты (blacklist) |
-| `color` | нет | `blue`, `cyan`, `green`, `yellow`, `magenta`, `red` | Цвет в UI для визуального различия |
-| `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree (v2.1.50) |
+| `tools` | нет | массив или строка | Ограничивает доступные инструменты (whitelist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
+| `disallowedTools` | нет | массив или строка | Запрещает конкретные инструменты (blacklist). ⚠️ Не блокирует MCP-инструменты (Issue #25589) |
+| `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree |
 | `hooks` | нет | объект (как в settings.json) | Hooks, привязанные к жизненному циклу субагента |
 | `maxTurns` | нет | число | Максимальное количество turn-ов (лимит работы субагента) |
 | `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` | Режим разрешений для субагента |
@@ -81,6 +80,8 @@
 | `skills` | нет | массив | Skills, доступные субагенту. Полный контент SKILL.md инжектируется при старте (не только description) |
 | `memory` | нет | enum: `user`, `project`, `local` | Включает персистентную директорию памяти для субагента |
 | `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу |
+
+> **Про `color`:** Поле `color` (`blue`, `cyan`, `green`, `yellow`, `magenta`, `red`) работает на практике и используется в официальных примерах и SKILL.md плагина plugin-dev, но **отсутствует** в официальной reference table "Supported frontmatter fields". Используйте — но знайте, что это недокументированное поле.
 
 > **Важно про `description`:** Claude использует это поле для автоматического делегирования. Чем конкретнее описание, тем точнее срабатывает делегирование. Официально рекомендуется добавлять `<example>` блоки.
 >
@@ -159,7 +160,7 @@ When given a task for Research phase:
 ### Git Worktrees для изоляции
 
 ```yaml
-# В frontmatter субагента (добавлено в v2.1.50, февраль 2026)
+# В frontmatter субагента
 isolation: worktree
 ```
 
@@ -456,22 +457,22 @@ Hooks обеспечивают детерминированный контрол
 | `PermissionRequest` | При появлении диалога разрешения | Да (JSON) | имя инструмента |
 | `PostToolUse` | После успешного tool-вызова | Нет (но feedback через JSON) | имя инструмента |
 | `PostToolUseFailure` | После неудачного tool-вызова | Нет | имя инструмента |
-| `Notification` | Когда Claude Code отправляет уведомление | Нет | тип: `permission_prompt`, `idle_prompt`, `auth_success` |
-| `SubagentStart` | При запуске субагента | Нет | имя агента: `Explore`, `Plan`, custom names |
+| `Notification` | Когда Claude Code отправляет уведомление | Нет | тип: `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog` |
+| `SubagentStart` | При запуске субагента | Нет | тип агента: `Bash`, `Explore`, `Plan`, custom names |
 | `SubagentStop` | При завершении субагента | Да (exit 2 или JSON) | имя агента |
 | `Stop` | Когда Claude завершает ответ | Да (exit 2 или JSON) | нет matcher |
 | `TeammateIdle` | Когда teammate в Agent Teams уходит в idle | Да (exit 2) | нет matcher |
 | `TaskCompleted` | Когда задача помечается как завершённая | Да (exit 2) | нет matcher |
-| `ConfigChange` | При изменении конфига во время сессии | Нет | `user_settings`, `project_settings`, `local_settings` |
+| `ConfigChange` | При изменении конфига во время сессии | Нет | `user_settings`, `project_settings`, `local_settings`, `policy_settings`, `skills` |
 | `WorktreeCreate` | При создании worktree | Да (заменяет git) | нет matcher |
 | `WorktreeRemove` | При удалении worktree | Нет | нет matcher |
 | `PreCompact` | Перед компакцией контекста | Нет | `manual`, `auto` |
-| `SessionEnd` | При завершении сессии | Нет | нет matcher |
+| `SessionEnd` | При завершении сессии | Нет | `clear`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled`, `other` |
 
 #### Типы hook-обработчиков (три варианта)
 
 ```json
-// 1. command — shell-команда (основной вариант)
+// 1. command — shell-команда (основной вариант, поддерживается ВСЕМИ событиями)
 { "type": "command", "command": ".claude/hooks/my-script.sh" }
 
 // 2. prompt — LLM-оценка (для нетривиальных решений)
@@ -480,6 +481,10 @@ Hooks обеспечивают детерминированный контрол
 // 3. agent — запускает субагента (для сложных проверок)
 { "type": "agent", "agent": "quality-gate-agent" }
 ```
+
+> ⚠️ **Не все события поддерживают все три типа.** Типы `prompt` и `agent` доступны только для 8 событий: `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, `PreToolUse`, `Stop`, `SubagentStop`, `TaskCompleted`, `UserPromptSubmit`. Остальные 9 событий поддерживают **только** `type: "command"`.
+>
+> ⚠️ **КРИТИЧНО для quality gates:** `type: "prompt"` и `type: "agent"` для `SubagentStop` отправляют feedback, но **НЕ предотвращают завершение** субагента (Issue #20221, открыт). Для quality gates используйте **только** `type: "command"` с exit code 2 или JSON `{"decision": "block"}`.
 
 #### settings.json — hooks для режима Subagents (основной вариант)
 
@@ -880,10 +885,10 @@ All AI agents must follow the 4-phase process:
 | **Implementation: Arch Reviewer** | Custom Subagent | `.claude/agents/arch-reviewer.md` |
 | **Implementation: Security Reviewer** | Custom Subagent | `.claude/agents/security-reviewer.md` |
 | **Implementation: Plan Compliance** | Custom Subagent | `.claude/agents/plan-compliance.md`, `model: haiku` |
-| **Quality Gates (Subagents)** | `SubagentStop` hook | JSON `{"decision": "block", "reason": "..."}` или exit 2 + stderr |
+| **Quality Gates (Subagents)** | `SubagentStop` hook (`type: command` только!) | JSON `{"decision": "block", "reason": "..."}` или exit 2 + stderr |
 | **Quality Gates (Agent Teams)** | `TeammateIdle` hook | exit 2 блокирует teammate |
 | **Quality Gates: автоформатирование** | `PostToolUse` hook | matcher `Edit\|Write` → lint-on-edit.sh |
-| **Параллельные сессии без конфликтов** | Git Worktrees | `claude --worktree` или `isolation: worktree` в subagent (v2.1.50+) |
+| **Параллельные сессии без конфликтов** | Git Worktrees | `claude --worktree` или `isolation: worktree` в subagent |
 | **Сложная координация между агентами** | Agent Teams (experimental) | `settings.json` → `{"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}}` |
 | **Лёгкая координация без Agent Teams** | tmux + state-файлы | Stop hook → tmux send-keys к координатору |
 | **Async уведомления** | Async hooks | `"async": true` в hook — не блокирует агента |
@@ -950,7 +955,7 @@ All AI agents must follow the 4-phase process:
 | Событие | Поля решения | Значения |
 |---|---|---|
 | `PreToolUse` | `hookSpecificOutput.permissionDecision` | `"allow"` / `"deny"` / `"ask"` |
-| `PermissionRequest` | `hookSpecificOutput.decision.behavior` | `"allow"` / `"deny"` / `"ask"` |
+| `PermissionRequest` | `hookSpecificOutput.decision.behavior` | `"allow"` / `"deny"` |
 | `PostToolUse` | `decision` | `"block"` (feedback) / undefined |
 | `Stop` / `SubagentStop` | `decision` | `"block"` / undefined |
 
@@ -1151,7 +1156,7 @@ Skills = on-demand промт-расширение. Claude загружает `n
 | `name` | нет | Lowercase + hyphens + цифры, макс 64 символа. По умолчанию = имя директории |
 | `description` | рекомендуется | Что делает + когда использовать. Основной триггер для Claude. При отсутствии — первый параграф контента |
 | `model` | нет | Модель для выполнения (`inherit` по умолчанию) |
-| `user-invokable` | нет | `false` → скрывает из `/` меню, но Claude может загружать автоматически |
+| `user-invocable` | нет | `false` → скрывает из `/` меню, но Claude может загружать автоматически |
 | `disable-model-invocation` | нет | `true` → только через `/skill-name`, Claude не загружает автоматически, description не в контексте |
 | `argument-hint` | нет | Подсказка в UI при вызове (например, `[test file] [options]`) |
 | `allowed-tools` | нет | Инструменты без запроса разрешения при активном скилле (⚠️ баг — см. ниже) |
@@ -1161,7 +1166,7 @@ Skills = on-demand промт-расширение. Claude загружает `n
 
 > ⚠️ **Критический баг:** поле `allowed-tools` в frontmatter скиллов **ненадёжно** (Issue #14956). Не выдаёт разрешения на Bash-команды, которые должно разрешать. Для ограничения инструментов используйте **субагентов** (у них `tools` работает корректно).
 
-**Слияние commands и skills (v2.1.3):**
+**Слияние commands и skills:**
 - `.claude/commands/research.md` и `.claude/skills/research/SKILL.md` — оба создают `/research`
 - Существующие `.claude/commands/` файлы продолжают работать
 - Skills добавляют: директорию для файлов, контроль invocation, авто-загрузку по описанию
@@ -1199,17 +1204,21 @@ Best practice из community — добавить в CLAUDE.md правила м
 - `$CLAUDE_PLUGIN_ROOT` — корневая директория плагина (для plugin hooks)
 - `$CLAUDE_ENV_FILE` — путь к файлу для персистентных env vars (только в `SessionStart` hooks)
 
-**Недокументированное runtime-поведение** (работает, но не в official docs):
-- `$CLAUDE_TOOL_INPUT_FILE_PATH` — путь файла из tool input (для PostToolUse с `Edit|Write`)
-- `$CLAUDE_TOOL_INPUT_COMMAND` — команда из tool input (для PostToolUse с `Bash`)
-- Общий паттерн: `tool_input` JSON-поля разворачиваются в `CLAUDE_TOOL_INPUT_<FIELD_NAME_UPPER>`
-- ⚠️ Не работает для Read/Glob (Issue #17637)
+**Получение tool input в hooks:**
 
-Пример использования в hooks конфиге:
+Tool input передаётся через **JSON на stdin** (это официальный механизм). Переменные окружения вида `$CLAUDE_TOOL_INPUT_*` **не документированы** и не гарантированы — для Read/Glob они точно не работают (Issue #17637). Используйте парсинг stdin:
+
+```bash
+# В hook-скрипте: получение file_path из stdin
+INPUT=$(cat)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+```
+
+Пример inline-хука для автоформатирования:
 ```json
 {
   "type": "command",
-  "command": "npx prettier --write \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
+  "command": ".claude/hooks/format-on-edit.sh"
 }
 ```
 
@@ -1253,10 +1262,11 @@ for await (const message of query({
 | Команда | Описание |
 |---|---|
 | `claude agents` | Просмотр всех настроенных агентов (project + user + plugin) |
-| `claude remote-control` | Внешнее управление сессиями — альтернатива tmux для orchestration (v2.1.51) |
 | `claude --worktree` | Запуск в изолированном git worktree |
 | `claude --agents '{JSON}'` | CLI-определение субагентов для текущей сессии |
 | `claude --agent <name>` | Запуск конкретного субагента как основного агента |
+| `claude --remote` | Создание web-сессии на claude.ai с описанием задачи |
+| `claude --teleport` | Возобновление web-сессии в локальном терминале |
 | `/stats` | Визуализация использования: daily usage, session history, модели |
 | `/plugin` | Интерактивное управление плагинами (4 вкладки: Discover, Installed, Marketplaces, Errors) |
 | `claude --debug` | Отладка загрузки плагинов и компонентов (также `/debug` в TUI) |
@@ -1320,7 +1330,58 @@ cd /path/to/worktree && claude "Edit parsers.py"
 
 **Влияние на методологию:** нельзя надёжно контролировать инструменты через Skills.
 
-**Обходной путь:** использовать субагентов с `tools` / `disallowedTools` — у них ограничения работают корректно. Оркестрационные команды (`/research`, `/implement`) реализовывать как commands, а ограничение инструментов — на уровне субагентов.
+**Обходной путь:** использовать субагентов с `tools` / `disallowedTools` — у них ограничения работают корректно для built-in tools. Оркестрационные команды (`/research`, `/implement`) реализовывать как commands, а ограничение инструментов — на уровне субагентов.
+
+---
+
+#### [Issue #25589] `disallowedTools` не блокирует MCP-инструменты
+**Статус:** открыт (февраль 2026)
+
+`--disallowedTools` и `disallowedTools` в субагентах блокируют только built-in tools. MCP tools остаются доступны независимо от ограничений.
+
+**Влияние на методологию:** security-reviewer или другие субагенты с ограниченными `tools` могут получить доступ к MCP-инструментам, которые не должны использовать.
+
+**Обходной путь:** не подключать ненужные MCP-серверы к субагентам (не указывать `mcpServers` в frontmatter). Без явного подключения субагент не получит MCP-инструменты.
+
+---
+
+#### [Issue #20221] `type: "prompt"` SubagentStop hooks не блокируют завершение
+**Статус:** открыт (январь 2026)
+
+SubagentStop hooks с `type: "prompt"` корректно оценивают и отправляют feedback субагенту, но **не предотвращают его завершение**. Субагент всё равно останавливается.
+
+**Влияние на методологию:** quality gates через prompt-хуки не работают как блокирующие гейты.
+
+**Обходной путь:** для quality gates использовать **только** `type: "command"` с exit code 2 или JSON `{"decision": "block"}`.
+
+---
+
+#### [Issue #24754] Task list state leaks across worktrees
+**Статус:** открыт (февраль 2026)
+
+`TaskCreate`/`TodoWrite` state привязан к git repository (shared `.git` directory), а не к отдельному worktree. Все параллельные сессии в разных worktrees видят и модифицируют один task list.
+
+**Влияние на методологию:** при `isolation: worktree` для параллельных Research-субагентов, их task lists будут конфликтовать.
+
+**Обходной путь:** не полагаться на встроенные task lists для координации между worktree-субагентами. Использовать файловые артефакты вместо task system.
+
+---
+
+#### [Issue #27069] Skills/commands дублируются в worktrees
+**Статус:** открыт (февраль 2026)
+
+При использовании git worktrees, commands из `.claude/commands/` появляются дважды в списке `/skills` — из main worktree и из текущего.
+
+**Влияние:** косметическая проблема, не блокирует работу, но может путать.
+
+---
+
+#### [Issue #27756] Infinite CPU loop при удалении `.claude/commands/`
+**Статус:** открыт (февраль 2026)
+
+Если агент удаляет директорию `.claude/commands/` при наличии дублирующихся slash commands из вложенных директорий, CLI входит в бесконечный CPU loop.
+
+**Влияние:** критическая проблема стабильности. Не удалять `.claude/commands/` программно.
 
 ---
 
@@ -1332,32 +1393,32 @@ cd /path/to/worktree && claude "Edit parsers.py"
 
 - **Session resumption** — возобновление сессии Agent Team ненадёжно
 - **Task coordination** — возможны race conditions при координации задач
-- **Shutdown behavior** — неконтролируемое завершение teammates
+- **Shutdown behavior** — медленное завершение teammates (ждут окончания текущего запроса/tool-вызова)
 - **Lead does work itself** — без Delegate Mode lead часто сам пишет код вместо делегирования
 
-**Delegate Mode** (важное открытие): нажмите `Shift+Tab` после запуска team — Lead перестаёт трогать код и фокусируется только на координации. Это напрямую соответствует методологии ("Lead никогда не пишет код сам").
+**Delegate Mode:** Ограничивает Lead координацией, запрещая прямое написание кода. Это напрямую соответствует методологии ("Lead никогда не пишет код сам"). Keybinding для активации (`Shift+Tab`) упоминается в community-источниках (claudefast.com), но **не подтверждён** официальной документацией Anthropic. В официальных docs рекомендуется указывать в промте: "Wait for your teammates to complete their tasks before proceeding."
 
 **Best practices для Agent Teams:**
 
 - Давать каждому teammate **явные файловые границы** в spawn-промте
-- Использовать Delegate Mode (`Shift+Tab`) по умолчанию
-- Agent Teams потребляют **3-4x больше токенов** чем одна сессия
-- Anthropic построили C-компилятор с 16 агентами: 100K строк Rust, ~$20K API costs
+- Использовать Delegate Mode по умолчанию
+- Agent Teams потребляют **значительно больше токенов** чем одна сессия (каждый teammate — отдельный Claude-инстанс)
+- Nicholas Carlini (Anthropic) построил C-компилятор с 16 агентами: 100K строк Rust, ~$20K API costs, ~2000 сессий. ⚠️ Использовал **кастомную оркестрацию** (Docker + git-based task locking), а не встроенный Agent Teams API
 
 **Вывод:** Agent Teams не готовы для production-использования с жёсткими quality gates. Для надёжной реализации методологии предпочесть **Subagents + `SubagentStop` hook** вместо Agent Teams + `TeammateIdle`.
 
 ---
 
-#### `isolation: worktree` в frontmatter — новая фича (v2.1.50, 20 февраля 2026)
+#### `isolation: worktree` в frontmatter — новая фича
 
-Добавлена 4 дня назад. Вероятны неотловленные edge cases. Использовать осторожно в первых реализациях.
+Добавлена недавно. Вероятны неотловленные edge cases (см. баги worktree-экосистемы ниже). Использовать осторожно в первых реализациях.
 
 ---
 
-### 🟢 Новое в v2.1.51 (последний релиз на момент ревью)
+### 🟢 Новое в последних релизах
 
-- **`claude remote-control`** — новый subcommand для внешнего управления сессиями Claude Code. Потенциально полезен для orchestration в swarm-паттернах как альтернатива tmux.
-- **`claude agents`** — CLI-команда для просмотра всех настроенных агентов (добавлено в v2.1.50). Полезно для отладки.
+- **`claude agents`** — CLI-команда для просмотра всех настроенных агентов. Полезно для отладки.
+- **`claude --remote`** / **`claude --teleport`** — создание и возобновление web-сессий на claude.ai. Потенциально полезно для orchestration.
 
 ---
 
@@ -1365,11 +1426,15 @@ cd /path/to/worktree && claude "Edit parsers.py"
 
 | Фаза | Риск | Рекомендация |
 | --- | --- | --- |
-| Research (isolation: worktree) | Path resolution bug | Использовать абсолютные пути в промтах субагентов |
+| Research (isolation: worktree) | Path resolution bug (#17927) | Использовать абсолютные пути в промтах субагентов |
+| Research (isolation: worktree) | Task list leak (#24754) | Не полагаться на встроенные task lists; использовать файловые артефакты |
+| Research (isolation: worktree) | Commands duplication (#27069) | Косметическая проблема, не критично |
 | Implementation (Agent Teams) | Experimental, known limitations | Использовать Subagents + SubagentStop вместо Agent Teams для начала |
-| Coordination (tmux + --worktree) | --tmux --worktree bug | Не комбинировать --tmux и --worktree через CLI |
+| Coordination (tmux + --worktree) | --tmux --worktree bug (#27562) | Не комбинировать --tmux и --worktree через CLI |
+| Quality gates (SubagentStop) | prompt/agent hooks не блокируют (#20221) | Использовать **только** `type: "command"` для quality gates |
 | Quality gates | — | SubagentStop надёжнее TeammateIdle для текущего состояния |
-| Skills allowed-tools | Не enforce-ится | Ограничивать инструменты через subagent `tools`, не через skills |
+| Subagent tools/disallowedTools | Не блокирует MCP tools (#25589) | Не подключать ненужные mcpServers к субагентам |
+| Skills allowed-tools | Не enforce-ится (#14956) | Ограничивать инструменты через subagent `tools`, не через skills |
 
 ---
 
@@ -1389,16 +1454,18 @@ cd /path/to/worktree && claude "Edit parsers.py"
 
 - **Начать с Subagents-only** (без Agent Teams) — надёжнее, проверено community
 - **Использовать exit code 2 + stderr** для quality gates — проще чем JSON, работает надёжно
+- **Только `type: "command"` для SubagentStop quality gates** — prompt/agent хуки не блокируют завершение (#20221)
 - **Не использовать `allowed-tools` в Skills** — баг, не enforce-ится. Ограничения — только через subagent `tools`
+- **Не подключать лишние `mcpServers` к субагентам** — `disallowedTools` не блокирует MCP tools (#25589)
 - **Абсолютные пути в промтах субагентов** — обход бага worktree path resolution (#17927)
 - **`stop_hook_active` проверка** в Stop/SubagentStop hooks — предотвращает бесконечные циклы
 - **Не комбинировать `--tmux` и `--worktree`** через CLI (#27562)
+- **Файловые артефакты вместо task lists** при работе с worktrees — task state leaks (#24754)
 
 ### Продвинутые возможности (после MVP)
 
 - **Plugin** — упаковать всё в plugin для переиспользования между проектами
-- **Agent Teams + Delegate Mode** — когда стабилизируется (Shift+Tab)
-- **`claude remote-control`** — для внешней orchestration как альтернатива tmux
+- **Agent Teams + Delegate Mode** — когда стабилизируется
+- **`claude --remote` / `--teleport`** — для внешней orchestration
 - **Agent SDK** — программная оркестрация для CI/CD интеграции
-- **Prompt hooks** (`type: "prompt"`) — LLM-оценка для нетривиальных quality gates
 - **`PreCompact` hook** — backup transcript перед компакцией контекста
