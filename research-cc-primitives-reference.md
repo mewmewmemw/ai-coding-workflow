@@ -3,7 +3,7 @@
 > Companion-документ к `research-claude-code-implementation.md`. Содержит детальный reference по всем примитивам Claude Code.
 > Известные баги и workarounds — см. `research-cc-known-issues.md`.
 
-> Верифицировано по версии **v2.1.50-51** (февраль 2026). Шесть раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, 5 параллельных агентов верификации).
+> Верифицировано по версии **v2.1.50-51** (февраль 2026). Семь раундов ревью (exa + context7 + GitHub issues + WebFetch official docs, параллельные агенты верификации).
 
 ---
 
@@ -66,8 +66,8 @@
 | `UserPromptSubmit` | При отправке промта, до обработки Claude | Да (exit 2 или JSON) | нет matcher |
 | `PreToolUse` | Перед выполнением tool-вызова | Да (exit 2 или JSON) | имя инструмента: `Bash`, `Read`, `Edit`, `Write`, `Glob`, `Grep`, `Task`, `WebFetch`, `WebSearch`, `Edit\|Write`, `mcp__.*` и любые MCP tool names |
 | `PermissionRequest` | При появлении диалога разрешения | Да (exit 2 или JSON) | имя инструмента |
-| `PostToolUse` | После успешного tool-вызова | Нет (но feedback через JSON) | имя инструмента |
-| `PostToolUseFailure` | После неудачного tool-вызова | Нет | имя инструмента |
+| `PostToolUse` | После успешного tool-вызова | Нет (но `decision: "block"` как feedback Claude) | имя инструмента |
+| `PostToolUseFailure` | После неудачного tool-вызова | Нет (но `decision: "block"` как feedback Claude) | имя инструмента |
 | `Notification` | Когда Claude Code отправляет уведомление | Нет | тип: `permission_prompt`, `idle_prompt`, `auth_success`, `elicitation_dialog` |
 | `SubagentStart` | При запуске субагента | Нет | тип агента: `Bash`, `Explore`, `Plan`, custom names |
 | `SubagentStop` | При завершении субагента | Да (exit 2 или JSON) | тип агента (`agent_type`): `Bash`, `Explore`, `Plan`, custom names |
@@ -116,7 +116,7 @@
   "continue": true,         // false → Claude полностью останавливается
   "stopReason": "string",   // сообщение при continue:false (показывается юзеру, НЕ Claude)
   "suppressOutput": false,  // true → stdout скрыт из verbose mode output
-  "systemMessage": "string" // предупреждение, показываемое юзеру (НЕ Claude). ⚠️ Для async hooks — доставляется Claude как контекст
+  "systemMessage": "string" // предупреждение, показываемое юзеру. Для sync hooks НЕ передаётся Claude. ⚠️ Для async hooks — доставляется Claude как контекст на следующем turn
 }
 ```
 
@@ -124,11 +124,11 @@
 
 | Событие | Поля решения | Значения |
 |---|---|---|
-| `UserPromptSubmit` | `decision` | `"block"` / undefined. Доп. поля: `reason`, `additionalContext` |
+| `UserPromptSubmit` | `decision` | `"block"` / undefined. Доп. поля: `reason`, `additionalContext` (через `hookSpecificOutput`) |
 | `PreToolUse` | `hookSpecificOutput.permissionDecision` | `"allow"` / `"deny"` / `"ask"`. Доп. поля: `permissionDecisionReason` (для allow/ask — юзеру; для deny — Claude), `updatedInput` (модификация tool input), `additionalContext`. ⚠️ Deprecated: top-level `decision`/`reason` (`approve`→`allow`, `block`→`deny`) |
 | `PermissionRequest` | `hookSpecificOutput.decision.behavior` | `"allow"` / `"deny"`. Доп. поля: `updatedInput`, `updatedPermissions`, `message`, `interrupt` |
-| `PostToolUse` | `decision` | `"block"` (feedback) / undefined. Доп. поля: `reason` (объяснение для Claude при block), `additionalContext`, `updatedMCPToolOutput` |
-| `PostToolUseFailure` | — | Только `additionalContext` (через `hookSpecificOutput`). ⚠️ Official docs группируют с top-level decision events, но конкретная секция документирует только `additionalContext` |
+| `PostToolUse` | `decision` | `"block"` (feedback) / undefined. Доп. поля: `reason` (объяснение для Claude при block), `additionalContext` (через `hookSpecificOutput`), `updatedMCPToolOutput` |
+| `PostToolUseFailure` | `decision` | `"block"` (feedback) / undefined. Доп. поля: `reason`, `additionalContext` (через `hookSpecificOutput`). ⚠️ Per-event секция official docs документирует только `additionalContext`; summary table включает top-level `decision: "block"` |
 | `Stop` / `SubagentStop` | `decision` | `"block"` / undefined. `"reason"` обязателен при block. Нет значения `"approve"` |
 | `ConfigChange` | `decision` | `"block"` (блокирует изменение конфига, кроме `policy_settings`) / undefined |
 
@@ -150,7 +150,7 @@
 - Разрешить: пустой stdout или `{}` (без поля `decision`)
 - Альтернатива: exit code `2` + stderr → тоже блокирует
 - `Stop` hooks для субагентов автоматически конвертируются в `SubagentStop`
-- Проверяйте `stop_hook_active` во входном JSON для предотвращения бесконечных циклов
+- Проверяйте `stop_hook_active` во входном JSON (или анализируйте transcript) для предотвращения бесконечных циклов
 
 ### Async hooks
 
@@ -224,7 +224,7 @@ Hooks настраиваются через `.claude/settings.json` (project-lev
 >
 > **`disableAllHooks`** — поле в settings для временного отключения всех hooks. ⚠️ Учитывает иерархию managed settings: если hooks заданы через managed policy, `disableAllHooks` на уровне user/project/local **не может** их отключить.
 >
-> **`allowManagedHooksOnly`** — enterprise-настройка: блокирует user, project и plugin hooks, оставляя только managed.
+> **`allowManagedHooksOnly`** — enterprise-настройка: блокирует user, project и plugin hooks, оставляя только managed и SDK hooks.
 
 ### Переменные окружения в hooks
 
@@ -301,7 +301,7 @@ my-plugin/
 ├── skills/                ← НА КОРНЕВОМ уровне
 ├── hooks/                 ← НА КОРНЕВОМ уровне (или hooks.json)
 ├── scripts/               ← Вспомогательные скрипты
-├── settings.json          ← Default agent settings (применяются при включении плагина)
+├── settings.json          ← Default settings (при включении плагина). ⚠️ Только `agent` settings поддерживаются на данный момент
 ├── .mcp.json              ← MCP-серверы
 ├── .lsp.json              ← LSP-серверы
 ├── CHANGELOG.md
@@ -310,7 +310,7 @@ my-plugin/
 
 > ⚠️ **Частая ошибка:** компоненты (commands, agents, skills, hooks) должны быть на **корневом** уровне плагина, **НЕ** внутри `.claude-plugin/`. Только `plugin.json` живёт в `.claude-plugin/`.
 
-**Манифест plugin.json:**
+**Манифест plugin.json** (опционален; при наличии единственное обязательное поле — `name`):
 ```json
 {
   "name": "my-methodology-plugin",
@@ -394,6 +394,7 @@ claude plugin update <plugin-name>
 - No nested teams — teammates не могут спаунить свои teams
 - Lead is fixed — нельзя передать лидерство
 - Permissions set at spawn — все стартуют с permission mode лида
+- Split panes require tmux or iTerm2 — не поддерживается в VS Code terminal, Windows Terminal, Ghostty
 
 **Паттерн Swarm через tmux** (community, без Agent Teams API):
 
@@ -493,6 +494,13 @@ exit 0
 | `/vim` | Включение vim mode |
 | `/statusline` | Настройка status line |
 | `/theme` | Смена цветовой темы |
+| `/exit` | Выход из REPL |
+| `/rename` | Переименование текущей сессии |
+| `/status` | Открыть Settings interface (Status tab) |
+| `/copy` | Скопировать последний ответ ассистента в буфер обмена |
+| `/desktop` | Передать в Claude Code Desktop app |
+| `/todos` | Список текущих TODO-элементов |
+| `/usage` | Показать лимиты плана и rate limit status |
 
 ---
 
