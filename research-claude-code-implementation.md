@@ -26,7 +26,7 @@
 - [CLAUDE.md Complete Guide](https://www.claudedirectory.org/blog/claude-md-guide)
 - [Anthropic Guide: Building Skills](https://resources.anthropic.com/hubfs/The-Complete-Guide-to-Building-Skill-for-Claude.pdf)
 
-> Документ верифицирован по версии **v2.1.50** (21 февраля 2026). Обновлён 24 февраля 2026 по результатам глубокого ресёрча (exa + context7). Все примеры проверены против официальной документации.
+> Документ верифицирован по версии **v2.1.50-51** (февраль 2026). Последнее критическое ревью: 24 февраля 2026 (exa + context7 + GitHub issues). Исправления применены по результатам ревью.
 
 ---
 
@@ -67,19 +67,20 @@
 
 | Поле | Обязательное | Значения | Описание |
 |---|---|---|---|
-| `name` | да | строка | Идентификатор субагента |
+| `name` | да | строка (lowercase + hyphens, 3-50 символов) | Идентификатор субагента |
 | `description` | да | строка + `<example>` блоки | По этому полю Claude решает, когда делегировать задачу |
-| `model` | нет | `haiku`, `sonnet`, `opus`, `inherit` | `inherit` — наследует от родителя |
+| `model` | нет | `haiku`, `sonnet`, `opus`, `inherit` | `inherit` — наследует от родителя (default) |
 | `tools` | нет | массив или строка | Ограничивает доступные инструменты (whitelist) |
 | `disallowedTools` | нет | массив или строка | Запрещает конкретные инструменты (blacklist) |
-| `color` | нет | `blue`, `green`, `yellow`, `red`, `purple` | Цвет в UI для визуального различия |
+| `color` | нет | `blue`, `cyan`, `green`, `yellow`, `magenta`, `red` | Цвет в UI для визуального различия |
 | `isolation` | нет | `worktree` | Запускает субагента в изолированном git worktree (v2.1.50) |
 | `hooks` | нет | объект (как в settings.json) | Hooks, привязанные к жизненному циклу субагента |
 | `maxTurns` | нет | число | Максимальное количество turn-ов (лимит работы субагента) |
-| `permissionMode` | нет | строка | Режим разрешений для субагента |
+| `permissionMode` | нет | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` | Режим разрешений для субагента |
 | `mcpServers` | нет | объект | MCP-серверы, доступные субагенту |
-| `skills` | нет | массив | Skills, доступные субагенту |
-| `memory` | нет | строка | Инструкции по ведению памяти (авто-заметки субагента) |
+| `skills` | нет | массив | Skills, доступные субагенту. Полный контент SKILL.md инжектируется при старте (не только description) |
+| `memory` | нет | enum: `user`, `project`, `local` | Включает персистентную директорию памяти для субагента |
+| `background` | нет | boolean (default: `false`) | `true` → запускает субагента как фоновую задачу |
 
 > **Важно про `description`:** Claude использует это поле для автоматического делегирования. Чем конкретнее описание, тем точнее срабатывает делегирование. Официально рекомендуется добавлять `<example>` блоки.
 >
@@ -518,8 +519,8 @@ Hooks обеспечивают детерминированный контрол
 >
 > **Альтернативный механизм:** exit code `2` + stderr → тоже блокирует, stderr передаётся Claude
 >
-> ⚠️ **НЕ существует** значения `"approve"` для Stop/SubagentStop (это значение используется в PreToolUse).
-> ⚠️ **НЕ существует** поля `"systemMessage"` — правильное поле: `"reason"`.
+> ⚠️ **НЕ существует** значения `"approve"` для Stop/SubagentStop. Для PreToolUse используется `hookSpecificOutput.permissionDecision` со значениями `"allow"` / `"deny"` / `"ask"` (см. таблицу ниже).
+> ⚠️ Поле `"reason"` — для блокировки (передаётся Claude вместе с `"decision": "block"`). Поле `"systemMessage"` — отдельное универсальное поле (показывает предупреждение юзеру). Оба существуют, но имеют разное назначение.
 
 ```bash
 #!/bin/bash
@@ -910,8 +911,8 @@ All AI agents must follow the 4-phase process:
 // stdout — разрешить: пустой stdout или {} (БЕЗ поля decision)
 ```
 
-> ⚠️ Поля `"approve"` **НЕ существует** для Stop/SubagentStop (это для PreToolUse). Чтобы разрешить — не возвращайте decision.
-> ⚠️ Поля `"systemMessage"` **НЕ существует**. Правильное поле — `"reason"`.
+> ⚠️ Поля `"approve"` **НЕ существует** для Stop/SubagentStop. Чтобы разрешить — не возвращайте decision.
+> ⚠️ Поле `"reason"` — для блокировки (передаётся Claude). Поле `"systemMessage"` — универсальное поле для всех hook-типов (показывает предупреждение юзеру). Оба существуют, разное назначение.
 > ⚠️ Обязательно проверяйте `stop_hook_active` во входном JSON чтобы избежать бесконечных циклов.
 
 **Альтернативный механизм** (проще): exit code `2` + stderr → блокирует, stderr передаётся Claude.
@@ -934,12 +935,13 @@ All AI agents must follow the 4-phase process:
 2. `"decision": "block"` в JSON — блокировка конкретного действия
 3. Exit code `2` — блокировка через stderr
 
-**JSON-поля, доступные для ВСЕХ hook-типов:**
+**JSON-поля, доступные для ВСЕХ hook-типов (Universal Fields):**
 ```json
 {
   "continue": true,         // false → Claude полностью останавливается
   "stopReason": "string",   // сообщение при continue:false (показывается юзеру, НЕ Claude)
-  "suppressOutput": false   // true → stdout скрыт из транскрипта
+  "suppressOutput": false,  // true → stdout скрыт из verbose mode output
+  "systemMessage": "string" // предупреждение, показываемое юзеру (НЕ Claude)
 }
 ```
 
@@ -947,7 +949,7 @@ All AI agents must follow the 4-phase process:
 
 | Событие | Поля решения | Значения |
 |---|---|---|
-| `PreToolUse` | `decision` | `"approve"` / `"block"` / undefined |
+| `PreToolUse` | `hookSpecificOutput.permissionDecision` | `"allow"` / `"deny"` / `"ask"` |
 | `PermissionRequest` | `hookSpecificOutput.decision.behavior` | `"allow"` / `"deny"` / `"ask"` |
 | `PostToolUse` | `decision` | `"block"` (feedback) / undefined |
 | `Stop` / `SubagentStop` | `decision` | `"block"` / undefined |
@@ -1001,15 +1003,9 @@ All AI agents must follow the 4-phase process:
 
 ---
 
-### /hooks — интерактивное меню
+### Настройка hooks
 
-В Claude Code появилось интерактивное меню для настройки hooks без ручного редактирования JSON:
-
-```
-/hooks
-```
-
-Показывает все доступные события, matchers и текущие hook-команды. Удобно для начальной настройки.
+Hooks настраиваются через `.claude/settings.json` (project-level) или `~/.claude/settings.json` (user-level). Интерфейс `/config` в TUI позволяет открыть файл настроек для редактирования.
 
 ---
 
@@ -1110,6 +1106,8 @@ my-plugin/
   "version": "1.0.0",
   "description": "Context engineering methodology agents and hooks",
   "author": { "name": "Team", "email": "team@example.com" },
+  "homepage": "https://github.com/team/plugin",
+  "repository": "https://github.com/team/plugin",
   "license": "MIT",
   "keywords": ["methodology", "quality-gates", "research"],
   "commands": ["./commands/"],
@@ -1124,12 +1122,11 @@ my-plugin/
 
 **Установка плагинов:**
 ```bash
-# Из маркетплейса
-claude plugin marketplace add VoltAgent/awesome-claude-code-subagents
+# CLI-установка
 claude plugin install <plugin-name>
 
-# Через интерактивное меню
-/plugin
+# Через интерактивное меню (в TUI)
+/plugin  # → вкладка Discover → Add
 ```
 
 **Маркетплейс:** 28+ официальных плагинов в `~/.claude/plugins/marketplaces/claude-plugins-official/plugins/`.
@@ -1140,7 +1137,7 @@ claude plugin install <plugin-name>
 
 ### Skills: детали системы (верифицировано)
 
-Skills = on-demand промт-расширение. Claude загружает `name` + `description` из frontmatter **всех** скиллов в начале сессии. Тело SKILL.md загружается **только** при вызове.
+Skills = on-demand промт-расширение. Claude загружает `name` + `description` из frontmatter скиллов в начале сессии (кроме тех, у которых `disable-model-invocation: true`). Тело SKILL.md загружается **только** при вызове. Бюджет на описания: 2% от контекстного окна (fallback 16,000 символов, настраивается через `SLASH_COMMAND_TOOL_CHAR_BUDGET`).
 
 **Три уровня progressive disclosure:**
 1. **Frontmatter** (name, description) — всегда в контексте Claude
@@ -1151,16 +1148,18 @@ Skills = on-demand промт-расширение. Claude загружает `n
 
 | Поле | Обязательное | Описание |
 |---|---|---|
-| `name` | да | kebab-case, должен совпадать с именем директории |
-| `description` | да | Что делает + когда использовать. Это основной триггер для Claude |
-| `version` | нет | Версия скилла (для трекинга) |
+| `name` | нет | Lowercase + hyphens + цифры, макс 64 символа. По умолчанию = имя директории |
+| `description` | рекомендуется | Что делает + когда использовать. Основной триггер для Claude. При отсутствии — первый параграф контента |
 | `model` | нет | Модель для выполнения (`inherit` по умолчанию) |
 | `user-invokable` | нет | `false` → скрывает из `/` меню, но Claude может загружать автоматически |
-| `disable-model-invocation` | нет | `true` → только через `/skill-name`, Claude не загружает автоматически |
-| `mode` | нет | `true` → появляется в секции "Mode Commands" (модифицирует поведение Claude) |
+| `disable-model-invocation` | нет | `true` → только через `/skill-name`, Claude не загружает автоматически, description не в контексте |
 | `argument-hint` | нет | Подсказка в UI при вызове (например, `[test file] [options]`) |
+| `allowed-tools` | нет | Инструменты без запроса разрешения при активном скилле (⚠️ баг — см. ниже) |
+| `context` | нет | `"fork"` → запуск в изолированном subagent context |
+| `agent` | нет | Какой субагент использовать при `context: fork` |
+| `hooks` | нет | Lifecycle hooks, привязанные к скиллу |
 
-> ⚠️ **Критический баг:** поле `allowed-tools` в frontmatter скиллов **НЕ ENFORCE-ИТСЯ** (Issue #14956, #18837). Claude может использовать любой инструмент, игнорируя ограничения. Для ограничения инструментов используйте **субагентов** (у них `tools` работает корректно).
+> ⚠️ **Критический баг:** поле `allowed-tools` в frontmatter скиллов **ненадёжно** (Issue #14956). Не выдаёт разрешения на Bash-команды, которые должно разрешать. Для ограничения инструментов используйте **субагентов** (у них `tools` работает корректно).
 
 **Слияние commands и skills (v2.1.3):**
 - `.claude/commands/research.md` и `.claude/skills/research/SKILL.md` — оба создают `/research`
@@ -1195,10 +1194,16 @@ Best practice из community — добавить в CLAUDE.md правила м
 
 ### Переменные окружения в hooks
 
-Hook-команды получают следующие переменные:
+**Официально задокументированные:**
 - `$CLAUDE_PROJECT_DIR` — корневая директория проекта (для портабельных путей)
-- `$CLAUDE_TOOL_INPUT_FILE_PATH` — путь файла из tool input (для PostToolUse с matcher `Edit|Write`)
 - `$CLAUDE_PLUGIN_ROOT` — корневая директория плагина (для plugin hooks)
+- `$CLAUDE_ENV_FILE` — путь к файлу для персистентных env vars (только в `SessionStart` hooks)
+
+**Недокументированное runtime-поведение** (работает, но не в official docs):
+- `$CLAUDE_TOOL_INPUT_FILE_PATH` — путь файла из tool input (для PostToolUse с `Edit|Write`)
+- `$CLAUDE_TOOL_INPUT_COMMAND` — команда из tool input (для PostToolUse с `Bash`)
+- Общий паттерн: `tool_input` JSON-поля разворачиваются в `CLAUDE_TOOL_INPUT_<FIELD_NAME_UPPER>`
+- ⚠️ Не работает для Read/Glob (Issue #17637)
 
 Пример использования в hooks конфиге:
 ```json
@@ -1238,8 +1243,8 @@ for await (const message of query({
 **Ключевые возможности SDK:**
 - Программное определение субагентов через `agents` параметр
 - Кастомные MCP-инструменты через `createSdkMcpServer()`
-- Резюмирование субагентов через `resume: sessionId`
-- Детекция invocation субагентов через `parent_tool_use_id`
+- Резюмирование сессий через `resume: sessionId` (+ `forkSession`, `resumeSessionAt`)
+- Детекция контекста субагента через `parent_tool_use_id` поле в SDK message types (`SDKAssistantMessage`, `SDKUserMessage`)
 
 ---
 
@@ -1248,14 +1253,13 @@ for await (const message of query({
 | Команда | Описание |
 |---|---|
 | `claude agents` | Просмотр всех настроенных агентов (project + user + plugin) |
-| `claude remote-control` | Внешнее управление сессиями — альтернатива tmux для orchestration |
+| `claude remote-control` | Внешнее управление сессиями — альтернатива tmux для orchestration (v2.1.51) |
 | `claude --worktree` | Запуск в изолированном git worktree |
 | `claude --agents '{JSON}'` | CLI-определение субагентов для текущей сессии |
 | `claude --agent <name>` | Запуск конкретного субагента как основного агента |
-| `/agents` | Интерактивное управление субагентами |
-| `/hooks` | Интерактивное управление hooks |
-| `/insights` | Анализ паттернов использования Claude Code |
-| `claude --debug` | Отладка загрузки плагинов и компонентов |
+| `/stats` | Визуализация использования: daily usage, session history, модели |
+| `/plugin` | Интерактивное управление плагинами (4 вкладки: Discover, Installed, Marketplaces, Errors) |
+| `claude --debug` | Отладка загрузки плагинов и компонентов (также `/debug` в TUI) |
 
 ---
 
@@ -1263,11 +1267,11 @@ for await (const message of query({
 
 Настройки Claude Code работают в 5 скоупах (от высшего приоритета к низшему):
 
-1. **Managed policy** — корпоративные политики (самый высокий приоритет)
-2. **`.claude/settings.local.json`** — локальные настройки проекта (не коммитятся в git)
-3. **`.claude/settings.json`** — настройки проекта (коммитятся в git)
-4. **`~/.claude/settings.json`** — пользовательские настройки
-5. **Default** — значения по умолчанию
+1. **Managed policy** (`managed-settings.json`) — корпоративные политики (самый высокий приоритет)
+2. **CLI arguments** — аргументы командной строки (временные, для текущей сессии)
+3. **`.claude/settings.local.json`** — локальные настройки проекта (не коммитятся в git)
+4. **`.claude/settings.json`** — настройки проекта (коммитятся в git)
+5. **`~/.claude/settings.json`** — пользовательские настройки (lowest)
 
 > **Правило:** hooks из `.claude/settings.json` коммитятся в репозиторий и работают для всей команды. Для локальных экспериментов — `.claude/settings.local.json`.
 
@@ -1308,12 +1312,13 @@ cd /path/to/worktree && claude "Edit parsers.py"
 
 ---
 
-#### [Issue #14956] `allowed-tools` в Skills не enforce-ится
+#### [Issue #14956] `allowed-tools` в Skills ненадёжен
+
 **Статус:** открыт
 
-Поле `allowed-tools` в SKILL.md frontmatter не ограничивает реальный доступ к инструментам. Claude может использовать любой инструмент, игнорируя whitelist.
+Поле `allowed-tools` в SKILL.md frontmatter не выдаёт разрешения на Bash-команды, которые должно разрешать. Связанный Issue #18837 (закрыт как дубликат #14956) описывал обратную проблему — `allowed-tools` не ограничивал доступ к неуказанным инструментам. В целом механизм ненадёжен в обоих направлениях.
 
-**Влияние на методологию:** нельзя создать "orchestration-only" скилл, который заставляет Claude делегировать работу субагентам вместо самостоятельного написания кода.
+**Влияние на методологию:** нельзя надёжно контролировать инструменты через Skills.
 
 **Обходной путь:** использовать субагентов с `tools` / `disallowedTools` — у них ограничения работают корректно. Оркестрационные команды (`/research`, `/implement`) реализовывать как commands, а ограничение инструментов — на уровне субагентов.
 
@@ -1322,7 +1327,9 @@ cd /path/to/worktree && claude "Edit parsers.py"
 ### 🟡 Ограничения экспериментальных фич
 
 #### Agent Teams: known limitations (официальная документация)
+
 Официально задокументированы ограничения:
+
 - **Session resumption** — возобновление сессии Agent Team ненадёжно
 - **Task coordination** — возможны race conditions при координации задач
 - **Shutdown behavior** — неконтролируемое завершение teammates
@@ -1331,6 +1338,7 @@ cd /path/to/worktree && claude "Edit parsers.py"
 **Delegate Mode** (важное открытие): нажмите `Shift+Tab` после запуска team — Lead перестаёт трогать код и фокусируется только на координации. Это напрямую соответствует методологии ("Lead никогда не пишет код сам").
 
 **Best practices для Agent Teams:**
+
 - Давать каждому teammate **явные файловые границы** в spawn-промте
 - Использовать Delegate Mode (`Shift+Tab`) по умолчанию
 - Agent Teams потребляют **3-4x больше токенов** чем одна сессия
